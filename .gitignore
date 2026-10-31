@@ -15,3 +15,7 @@ __pycache__/
 *.log
 server*.log
 soak_report*.jsonl
+# 每台机器各一份的运行时状态（监听目录记忆 / 已导入去重 / 测试残留）
+watch_autostart.json
+watch_dedupe.json
+_test_tasks.json
