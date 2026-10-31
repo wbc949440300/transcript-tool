@@ -1,0 +1,2399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文案提取工具 - 视频/图片/文件转文字</title>
+<style>
+:root{
+  --bg:#f8f7fc; --card:#fff; --brand:#7c3aed; --brand2:#d946ef;
+  --text:#1b1b2f; --muted:#6b7280; --border:#ece7fa; --danger:#dc2626;
+  --ok:#059669;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+/* ---------- 顶部导航 ---------- */
+.navbar{position:sticky;top:0;z-index:50;background:rgba(248,247,252,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);}
+.nav-inner{max-width:920px;margin:0 auto;padding:.75rem 1.25rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;}
+.brand{font-weight:800;font-size:1.15rem;background:linear-gradient(90deg,#7c3aed,#d946ef);-webkit-background-clip:text;background-clip:text;color:transparent;cursor:pointer;}
+.nav-links{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;}
+.nav-link{padding:.45rem .9rem;border-radius:999px;font-size:.9rem;font-weight:600;color:#374151;cursor:pointer;transition:.15s;position:relative;}
+.nav-link:hover{background:#f1ebff;color:var(--brand);}
+.nav-link.active{background:linear-gradient(90deg,#7c3aed,#d946ef);color:#fff;box-shadow:0 4px 14px rgba(217,70,239,.35);}
+.dropdown{position:relative;}
+.dropdown-caret{font-size:.7em;margin-left:2px;}
+.dropdown-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:560px;background:#fff;border:1px solid var(--border);border-radius:18px;box-shadow:0 20px 50px rgba(31,20,70,.18);padding:1rem;display:none;z-index:60;max-height:76vh;overflow:auto;}
+.dropdown-panel.open{display:block;}
+.dd-section-title{font-size:.72rem;font-weight:800;letter-spacing:.08em;color:#a78bfa;text-transform:uppercase;margin:.8rem .4rem .2rem;display:flex;align-items:center;gap:.4rem;}
+.dd-section-title:first-child{margin-top:.2rem;}
+.dd-item{display:flex;align-items:center;gap:.75rem;padding:.55rem .6rem;border-radius:12px;cursor:pointer;transition:.12s;}
+.dd-item:hover{background:#f6f1ff;}
+.dd-item.active{background:#f3ecff;}
+.dd-item .ico{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;}
+.dd-item .nm{font-weight:600;font-size:.9rem;}
+.dd-item .go{margin-left:auto;color:#c4b5fd;font-size:.95rem;}
+/* ---------- 主容器 ---------- */
+.container{max-width:820px;margin:0 auto;padding:2rem 1.25rem 4rem;}
+/* 视频号页：居中内容区（不铺满屏幕），左侧列表占 1/3 */
+.container.qq-wide{max-width:1120px;}
+.view{display:none;animation:fade .25s ease;}
+.view.active{display:block;}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.hero{text-align:center;margin-bottom:1.6rem;}
+.hero h1{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;background:linear-gradient(90deg,#6d28d9,#d946ef,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.hero p{color:var(--muted);margin-top:.5rem;font-size:.95rem;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:1.5rem;box-shadow:0 12px 40px rgba(124,58,237,.07);}
+label{font-weight:700;font-size:.88rem;display:block;margin-bottom:.5rem;}
+textarea,input[type=text]{width:100%;padding:.8rem 1rem;border:1px solid var(--border);border-radius:12px;font-size:.92rem;outline:none;background:#fdfbff;resize:vertical;font-family:inherit;}
+textarea:focus,input[type=text]:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(124,58,237,.12);}
+.btn{background:linear-gradient(90deg,#7c3aed,#d946ef);color:#fff;border:none;border-radius:12px;padding:.8rem 1.5rem;font-size:.95rem;font-weight:700;cursor:pointer;transition:.15s;box-shadow:0 8px 22px rgba(217,70,239,.28);}
+.btn:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(217,70,239,.38);}
+.btn:disabled{opacity:.6;cursor:not-allowed;transform:none;}
+.btn.ghost{background:#fff;color:var(--brand);box-shadow:none;border:1px solid var(--border);}
+.btn.sm{padding:.5rem .95rem;font-size:.82rem;box-shadow:none;}
+.row{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-top:.9rem;}
+select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;background:#fff;font-size:.85rem;}
+.msg{font-size:.85rem;border-radius:10px;padding:.6rem .9rem;margin-top:.8rem;display:none;}
+.msg.show{display:block;}
+.msg.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
+.msg.info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
+.msg.success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;}
+.loading{display:none;align-items:center;gap:.8rem;color:#6d28d9;font-weight:600;font-size:.9rem;margin-top:1rem;}
+.loading.show{display:flex;}
+.spinner{width:20px;height:20px;border:3px solid #e9d5ff;border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* 结果 */
+#result{display:none;margin-top:1.2rem;}
+#result.show{display:block;}
+.meta{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.4rem 0 .9rem;}
+.pill{font-size:.72rem;font-weight:600;padding:.25rem .7rem;border-radius:999px;}
+.pill.platform{background:#eef2ff;color:#4338ca;}
+.pill.dur{background:#ecfdf5;color:#059669;}
+.pill.status{background:#f3e8ff;color:#7c3aed;}
+.result-title{font-size:1.1rem;font-weight:700;margin:.5rem 0 1rem;line-height:1.5;}
+.section-label{font-size:.72rem;font-weight:700;letter-spacing:.1em;color:#a78bfa;text-transform:uppercase;margin:1.1rem 0 .4rem;clear:both;}
+.variant-switch{display:inline-flex;background:#f3f0fb;border:1px solid var(--border);border-radius:999px;padding:2px;gap:2px}
+.variant-switch button{border:0;background:transparent;color:var(--muted);font-size:.72rem;padding:.18rem .6rem;border-radius:999px;cursor:pointer;line-height:1.2}
+.variant-switch button.active{background:#fff;color:var(--brand);font-weight:600;box-shadow:0 1px 3px rgba(124,58,237,.18)}
+
+.desc{color:#34303f;line-height:1.7;font-size:.9rem;white-space:pre-wrap;}
+.transcript{background:#fbfaff;border:1px solid var(--border);border-radius:14px;padding:1.1rem;font-size:.9rem;line-height:1.85;white-space:pre-wrap;max-height:380px;overflow:auto;}
+.copy{background:#f3f0ff;border:1px solid var(--border);color:#6d28d9;border-radius:10px;padding:.4rem .9rem;font-size:.8rem;font-weight:600;cursor:pointer;margin-left:.5rem;float:right;}
+.media video,.media audio{width:100%;border-radius:12px;background:#000;margin-top:.4rem;}
+.bili-embed{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000;margin-top:.4rem;}
+.bili-embed iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;}
+.cover{width:100%;max-height:320px;object-fit:contain;border-radius:12px;margin-top:.4rem;background:#eee;}
+/* 批量结果 */
+.batch-item{border:1px solid var(--border);border-radius:14px;padding:.9rem 1rem;margin-bottom:.8rem;background:#fff;}
+.batch-item .head{display:flex;align-items:center;gap:.6rem;margin-bottom:.4rem;}
+.batch-item .url{color:var(--muted);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.batch-item .txt{font-size:.88rem;line-height:1.7;white-space:pre-wrap;color:#34303f;max-height:140px;overflow:auto;margin-top:.4rem;}
+.status-tag{font-size:.7rem;font-weight:700;padding:.15rem .55rem;border-radius:999px;}
+.status-tag.ok{background:#ecfdf5;color:#065f46;}
+.status-tag.fail{background:#fef2f2;color:#b91c1c;}
+.status-tag.run{background:#eff6ff;color:#1d4ed8;}
+.status-tag.wait{background:#f3f4f6;color:#6b7280;}
+.batch-progress{height:8px;background:#eee;border-radius:99px;overflow:hidden;margin:.6rem 0;}
+.batch-progress>div{height:100%;background:linear-gradient(90deg,#7c3aed,#d946ef);width:0;transition:.3s;border-radius:99px;}
+/* 历史记录 */
+.h-item{display:flex;align-items:center;gap:1rem;justify-content:space-between;border:1px solid var(--border);border-radius:14px;padding:.8rem 1rem;margin-bottom:.6rem;background:#fff;transition:.12s;cursor:pointer;}
+.h-item:hover{border-color:var(--brand);box-shadow:0 4px 16px rgba(124,58,237,.08);}
+/* 视频截图缩略图带 */
+.frame-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.5rem;margin:.35rem 0 .2rem;}
+.frame-strip img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px;border:1px solid var(--border);background:#f3f4f6;display:block;cursor:zoom-in;transition:transform .12s,box-shadow .12s;}
+.frame-strip img:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(124,58,237,.18);}
+@media(max-width:640px){ .frame-strip{grid-template-columns:repeat(3,minmax(0,1fr));} }
+/* 悬停浮空预览 */
+#framePeek{position:fixed;z-index:400;pointer-events:none;opacity:0;transition:opacity .12s;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px rgba(17,24,39,.28);padding:4px;}
+#framePeek img{display:block;border-radius:9px;}
+/* 点击放大灯箱 */
+#frameLightbox{position:fixed;inset:0;z-index:500;background:rgba(17,24,39,.84);display:none;align-items:center;justify-content:center;padding:3vh 3vw;cursor:zoom-out;}
+#frameLightbox.open{display:flex;}
+#frameLightbox img{max-width:94vw;max-height:94vh;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);cursor:default;}
+.h-left{display:flex;align-items:center;gap:.8rem;flex:1;min-width:0;}
+.h-type{flex-shrink:0;font-size:.68rem;font-weight:700;padding:.2rem .5rem;border-radius:8px;background:#f3e8ff;color:#7c3aed;}
+.h-main{min-width:0;flex:1;}
+.h-title{font-weight:600;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.h-sub{color:var(--muted);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:.15rem;}
+.input-hint{margin-top:.45rem;font-size:.76rem;color:#8b8794;line-height:1.9;}
+.input-hint .hint-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:.35rem;margin-top:.1rem;}
+.input-hint .hint-tag{flex:0 0 auto;display:inline-flex;align-items:center;color:#6b7280;background:#f3f4f6;border-radius:5px;padding:.02rem .35rem;font-size:.7rem;font-weight:600;line-height:1.6;}
+.input-hint code{background:#f8f8fb;color:#52525b;border:1px solid #eef0f4;padding:.02rem .32rem;border-radius:5px;font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:.72rem;overflow-wrap:anywhere;}
+.input-hint .hint-note{color:#9ca3af;font-size:.72rem;}
+#vresult[data-stack] > .card{scroll-margin-top:76px;}
+/* 视频号页两列布局：左侧 1/3 列表，右侧 2/3 结果/流程 */
+.qq-layout{display:grid;grid-template-columns:minmax(300px,1fr) 2fr;gap:1rem;align-items:start;}
+/* 还没有任何结果时右侧是全空的，两栏会让左侧显得又窄又空 → 空白态居中单栏 */
+.qq-layout.qq-empty{grid-template-columns:minmax(0,760px);justify-content:center;}
+.qq-layout.qq-empty .qq-main{display:none;}
+.qq-side,.qq-main{display:flex;flex-direction:column;gap:1rem;min-width:0;}
+.qq-side .card,.qq-main .card{margin:0;}
+.qq-side .row{flex-wrap:wrap;}
+#vresult[data-stack]{display:flex;flex-direction:column;gap:1rem;}
+/* 视频号结果里的竖屏视频限高居中，避免单条结果占满整屏 */
+.qq-main .media video{max-height:min(62vh,560px);width:auto;max-width:100%;margin:.4rem auto 0;display:block;}
+@media(max-width:1000px){ .qq-layout{grid-template-columns:1fr;} .qq-side{order:2;} .qq-main{order:1;} }
+.h-time{color:#c0b7dc;font-size:.7rem;margin-top:.15rem;}
+.h-right{display:flex;align-items:center;gap:.4rem;flex-shrink:0;}
+/* 导出弹窗 */
+.modal-mask{position:fixed;inset:0;z-index:100;background:rgba(15,10,40,.5);display:flex;align-items:center;justify-content:center;padding:1rem;}
+.modal{width:100%;max-width:26rem;background:#fff;border-radius:18px;padding:1.5rem;box-shadow:0 24px 60px rgba(20,10,60,.28);}
+.modal h3{font-size:1.05rem;font-weight:800;color:#111827;}
+.fmt-grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:1rem;}
+.fmt-card{display:flex;flex-direction:column;gap:.25rem;text-align:left;border:1px solid var(--border);border-radius:12px;padding:.8rem .9rem;background:#fff;cursor:pointer;transition:.12s;}
+.fmt-card:hover{border-color:#f0abfc;background:#fdf4ff;}
+.fmt-card.sel{border-color:transparent;background:#faf0ff;box-shadow:0 0 0 2px #d946ef;}
+.fmt-card b{font-size:.88rem;color:#111827;}
+.fmt-card.sel b{color:#a21caf;}
+.fmt-card span{font-size:.72rem;color:#6b7280;}
+.modal-foot{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.3rem;}
+.h-check{width:16px;height:16px;accent-color:#7c3aed;flex-shrink:0;cursor:pointer;}
+/* AI 纠错改动清单 */
+.corr-list{margin:0;padding-left:1.1rem;font-size:.82rem;line-height:1.9;color:#374151;max-height:220px;overflow:auto;}
+.corr-list code{background:#f3f0ff;color:#6d28d9;padding:.05rem .3rem;border-radius:5px;font-size:.8rem;word-break:break-all;}
+/* 笔记预览 */
+.note-preview{max-height:420px;overflow:auto;background:#fbfaff;border:1px solid var(--border);border-radius:12px;
+  padding:1rem;font-family:ui-monospace,Consolas,"Microsoft YaHei",monospace;font-size:.8rem;line-height:1.7;
+  white-space:pre-wrap;word-break:break-word;color:#312e42;}
+/* 文件上传 */
+.dropzone{border:2px dashed var(--border);border-radius:16px;padding:2rem;text-align:center;cursor:pointer;transition:.15s;background:#fdfbff;}
+.dropzone:hover,.dropzone.drag{border-color:var(--brand);background:#f6f1ff;}
+.dropzone .dz-ico{font-size:2rem;}
+.dropzone p{color:var(--muted);font-size:.88rem;margin-top:.4rem;}
+.dropzone small{color:#9ca3af;}
+/* 平台小卡片：按平台 */
+.plat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.7rem;}
+.plat-chip{display:flex;align-items:center;gap:.5rem;border:1px solid var(--border);border-radius:12px;padding:.55rem .7rem;cursor:pointer;transition:.12s;font-weight:600;font-size:.85rem;background:#fff;}
+.plat-chip:hover{border-color:var(--brand);background:#f6f1ff;}
+.plat-chip.active{border-color:var(--brand);background:linear-gradient(90deg,#7c3aed,#d946ef);color:#fff;}
+.plat-chip .dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;color:#fff;flex-shrink:0;}
+footer{text-align:center;color:#9ca3af;font-size:.8rem;margin-top:3rem;line-height:1.7;}
+@media(max-width:640px){ .dropdown-panel{min-width:92vw;left:-220px;} }
+.risk-banner{display:none;max-width:1120px;margin:.65rem auto 0;padding:.45rem .8rem;border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:10px;font-size:.8rem;line-height:1.5;text-align:center;}
+.risk-banner.alert-danger{border-color:#fca5a5;background:#fef2f2;color:#b91c1c;}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <div class="brand">🎬 文案提取工具</div>
+    <div class="nav-links">
+      <div class="nav-link active" data-nav="home">首页</div>
+      <div class="dropdown">
+        <div class="nav-link" data-nav="extract" id="extractLink">文案提取工具 <span class="dropdown-caret">▾</span></div>
+        <div class="dropdown-panel" id="extractPanel"></div>
+      </div>
+      <div class="nav-link" data-nav="history">历史记录</div>
+      <div class="nav-link" data-nav="accounts">账号</div>
+    </div>
+  </div>
+</nav>
+
+<div id="riskBanner" class="risk-banner"></div>
+
+<div class="container">
+  <!-- 首页 -->
+  <div class="view" data-view="home" id="view-home"></div>
+  <!-- 视频文案提取（通用入口，含平台选择） -->
+  <div class="view" data-view="video" id="view-video"></div>
+  <!-- 批量提取 -->
+  <div class="view" data-view="batch" id="view-batch"></div>
+  <!-- 图片/OCR -->
+  <div class="view" data-view="image" id="view-image"></div>
+  <!-- 文件上传 -->
+  <div class="view" data-view="file" id="view-file"></div>
+  <div class="view" data-view="accounts" id="view-accounts"></div>
+  <!-- 历史记录 -->
+  <div class="view" data-view="history" id="view-history"></div>
+</div>
+
+<footer>
+  本项目为技术演示：yt-dlp 抓取视频元数据/字幕 + faster-whisper 离线语音转文字 + RapidOCR 图片文字识别。<br>
+  请仅用于你有权访问的内容，并遵守目标平台服务条款与版权。
+</footer>
+
+<script>
+const API = "/prod-api";
+const CS = { douyin:'#161823', xhs:'#fe2c55', kuaishou:'#ff6a00', bilibili:'#fb7299', qqvideo:'#07c160', batch:'#7c3aed', ocr:'#0ea5e9', file:'#10b981' };
+
+// 文案提取下拉菜单配置（对齐抖虫）
+const EXTRACT_MENU = [
+  { section:'🎥 视频文案提取',
+    items:[
+      {id:'video_text', key:'douyin',   label:'抖音视频文案提取',  icon:'📱', color:CS.douyin},
+      {id:'video_text', key:'xhs',      label:'小红书视频文案提取',icon:'📕', color:CS.xhs},
+      {id:'video_text', key:'kuaishou', label:'快手视频文案提取',  icon:'🎞️', color:CS.kuaishou},
+      {id:'video_text', key:'bilibili', label:'B站视频文案提取',   icon:'📺', color:CS.bilibili},
+      {id:'video_text', key:'qqvideo',  label:'视频号视频文案提取',icon:'📱', color:CS.qqvideo},
+      {id:'batch',      key:'batch',    label:'批量提取文案',      icon:'📚', color:CS.batch},
+    ]},
+  { section:'🖼️ 图片文案提取',
+    items:[
+      {id:'image', key:'ocr', label:'图片文案提取（OCR）', icon:'🖼️', color:CS.ocr},
+    ]},
+  { section:'📤 上传文件提取',
+    items:[
+      {id:'file', key:'video', label:'视频转文字',   icon:'🎬', color:CS.file},
+      {id:'file', key:'audio', label:'录音转文字',   icon:'🎙️', color:CS.file},
+    ]},
+];
+
+function buildMenu(){
+  const panel = document.getElementById('extractPanel');
+  let h='';
+  EXTRACT_MENU.forEach(group=>{
+    h+='<div class="dd-section-title">'+group.section+'</div>';
+    group.items.forEach(it=>{
+      h+='<div class="dd-item" data-nav-to="'+it.id+'" data-key="'+it.key+'" data-url="'+urlFor(it.id, it.key)+'">'
+        +'<div class="ico" style="background:'+it.color+'1a;color:'+it.color+'">'+it.icon+'</div>'
+        +'<div class="nm">'+it.label+'</div><div class="go">›</div></div>';
+    });
+  });
+  panel.innerHTML=h;
+}
+
+// ---------- 路由：每个功能一个独立 URL（支持"点功能 → 新标签页打开"）----------
+
+/** 菜单项 → hash 路由 */
+function urlFor(to, key){
+  if(to==='video_text') return '#/video/'+(key||'douyin');
+  if(to==='batch')      return '#/batch';
+  if(to==='image')      return '#/image/'+(key||'ocr');
+  if(to==='file')       return '#/file/'+((key==='audio')?'audio':'video');
+  if(to==='accounts')   return '#/accounts';
+  return '#/home';
+}
+
+/** hash → {view, key, taskId} */
+function routeFromHash(){
+  const raw=(location.hash||'').replace(/^#\/?/, '');
+  const [path, query] = raw.split('?');
+  const parts=path.split('/').filter(Boolean);
+  const view=parts[0]||'home', key=parts[1]||'';
+  const ok=['home','video','batch','image','file','history','accounts'];
+  const taskId=new URLSearchParams(query||'').get('task')||'';
+  return ok.includes(view) ? {view:view, key:key, taskId:taskId} : {view:'home', key:'', taskId:''};
+}
+
+/** 结果页直达地址（供历史记录新标签打开/刷新/收藏） */
+function resultUrlFor(view, key, taskId){
+  return '#/'+view+(key?'/'+key:'')+(taskId?'?task='+encodeURIComponent(taskId):'');
+}
+// 约定：新增的结果/详情类页面一律用 window.open 新标签打开，并支持 ?task= 直达
+
+const PAGE_TITLES = {
+  home:'文案提取工具 - 视频/图片/文件转文字',
+  video:{douyin:'抖音视频文案提取', xhs:'小红书视频文案提取', kuaishou:'快手视频文案提取',
+         bilibili:'B站视频文案提取', qqvideo:'视频号视频文案提取'},
+  image:{ocr:'图片文案提取（OCR）'},
+  file:{video:'视频转文字', audio:'录音转文字'},
+  batch:'批量提取文案',
+  history:'历史记录',
+  accounts:'平台账号登录'
+};
+function setPageTitle(view, key){
+  if(view==='home'){ document.title='文案提取工具 - 视频/图片/文件转文字'; return; }
+  const t=PAGE_TITLES[view];
+  const sub=(typeof t==='string') ? t : ((t && t[key]) || '');
+  document.title = (sub ? sub+' - ' : '') + '文案提取工具';
+}
+
+/** 视图 → 中文名（用于"返回刚才结果"的按钮文案） */
+function viewLabel(view, key){
+  const t=PAGE_TITLES[view];
+  return (typeof t==='string') ? t : ((t && t[key]) || '');
+}
+
+// ---------- 视图 ----------
+
+const views = {
+  accounts(){
+    return '<div class="hero"><h1>平台账号登录</h1>'
+      +'<p>登录态存在本机；抓取默认匿名，只有在平台要求登录时才动用账号</p></div>'
+      +'<div class="card" id="acctCard"><div class="muted" style="font-size:.85rem">正在读取账号状态…</div></div>'
+      +'<div class="card"><div class="section-label">说明</div>'
+      +'<div style="font-size:.82rem;line-height:1.9;color:#4b5563">'
+      +'· 登录必须<b>人工完成</b>：点「登录」会在本机弹出浏览器窗口，扫码或输密码，完成后自动保存<br>'
+      +'· 每个账号一个独立 profile，互不串号；抓取端读的是<b>同一个</b> profile，不会"登录了却没用上"<br>'
+      +'· 「验证」无窗口地跑一次检查，能发现登录态过期并顺带刷新 cookie<br>'
+      +'· 快手匿名即可，不登录也能抓（登录只影响受限内容）<br>'
+      +'· <b>分发给别的电脑时不要拷贝 cookies/ 目录</b>：每台机器各自登录自己的账号，一个账号只在一台机器上用'
+      +'</div></div>';
+  },
+  home(){
+    return '<div class="hero"><h1>视频 · 图片 · 文件 文案一键提取</h1>'
+      +'<p>粘贴链接或上传文件，自动提取标题、简介与全片口播文案（语音转写 / 图片OCR）</p></div>'
+      +'<div class="card">'
+      +'<div class="plat-grid">'
+      +  ['douyin|抖音','xhs|小红书','kuaishou|快手','bilibili|B站','qqvideo|视频号'].map(p=>{
+        const [k,n]=p.split('|'); return '<div class="plat-chip" data-go="video" data-key="'+k+'"><div class="dot" style="background:'+CS[k]+'">'+n[0]+'</div>'+n+'视频文案提取</div>';
+      }).join('')
+      +'<div class="plat-chip" data-go="batch"><div class="dot" style="background:'+CS.batch+'">批</div>批量提取文案</div>'
+      +'<div class="plat-chip" data-go="image"><div class="dot" style="background:'+CS.ocr+'">图</div>图片文案提取</div>'
+      +'<div class="plat-chip" data-go="file"><div class="dot" style="background:'+CS.file+'">传</div>上传文件转文字</div>'
+      +'</div>'
+      +'<div class="row"><button class="btn" onclick="quickDemo()">🚀 立即体验：粘贴链接提取</button></div>'
+      +'</div>';
+  },
+
+  video(key){
+    const names={douyin:'抖音',xhs:'小红书',kuaishou:'快手',bilibili:'B站',qqvideo:'视频号'};
+    const hints={
+      douyin:'<div class="hint-row"><span class="hint-tag">网页</span><code>https://www.douyin.com/video/xxxx…</code></div>'
+        +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://v.douyin.com/xxxx/</code><span class="hint-note">整段分享文案也行</span></div>',
+      xhs:'<div class="hint-row"><span class="hint-tag">网页</span><code>https://www.xiaohongshu.com/explore/xxxx…</code><span class="hint-note">带 xsec_token</span></div>'
+        +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>http://xhslink.com/xxxx</code><span class="hint-note">自带 token</span></div>',
+      kuaishou:'<div class="hint-row"><span class="hint-tag">网页</span><code>https://www.kuaishou.com/short-video/xxxx…</code></div>'
+        +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://v.kuaishou.com/xxxx</code><span class="hint-note">或</span><code>https://www.kuaishou.com/f/xxxx</code></div>',
+      bilibili:'<div class="hint-row"><span class="hint-tag">网页</span><code>https://www.bilibili.com/video/BVxxxx…</code></div>'
+        +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://b23.tv/xxxx</code></div>',
+      qqvideo:'<div class="hint-row"><span class="hint-tag">提示</span><span class="hint-note">视频号链接不能直接解析/提交给下载器；请在微信里播放后点下载器注入的下载按钮，或抓包导出到下方监听目录。</span></div>',
+    };
+    const nm=names[key]||'视频';
+    const ph = '粘贴网页链接或 App 分享链接；也可直接粘贴整段分享文案';
+    const hint = hints[key] ? '<div class="input-hint">'+hints[key]+'</div>' : '';
+    if(key==='qqvideo'){
+      return '<div class="hero"><h1>视频号视频文案提取</h1>'
+        +'<p>点「开始提取」→ 微信里点「下载」→ 结果直接显示在本页</p></div>'
+        + hint
+        +'<div class="card">'
+        +'<div id="qqFlowBlock">'
+        +'<label>提取流程</label>'
+        +'<div style="display:flex;flex-direction:column;gap:.45rem;margin:.55rem 0 .7rem;font-size:.88rem;line-height:1.55">'
+        +  '<div>1️⃣ 点下方「<b>开始提取</b>」（会自动开启文件监听）</div>'
+        +  '<div>2️⃣ 在<b>微信</b>里打开视频号视频并播放 → 点页面注入的「<b>下载</b>」按钮，<b>等待下载完成</b></div>'
+        +  '<div>3️⃣ 下载完成后自动转写，<b>结果（预览/截图/全文）会显示在本页</b>；期间请保持微信视频号页面开启</div>'
+        +'</div>'
+        +'<div class="row" style="margin:.1rem 0 .35rem">'
+        +'<button class="btn" id="qqStart">开始提取</button>'
+        +'<span class="h-sub">点完「下载」后等它下载完即可（保持视频号页面开启）；本页同时会列出最近的归档文案</span>'
+        +'</div>'
+        +'<div class="msg" id="vmsg"></div>'
+        +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
+        +'</div>'
+        +'<div id="qqStatusBlock" style="border-top:1px solid var(--line,#eee);margin-top:.7rem;padding-top:.7rem">'
+        +'<div id="extDlStatus" style="font-size:.82rem;color:var(--muted)">下载器检测中…</div>'
+        +'<div class="row" id="extDlActions" style="margin-top:.45rem"></div>'
+        +'<div id="watchStatus" style="margin-top:.6rem;font-size:.82rem;color:var(--muted)">监听检测中…</div>'
+        +'<div id="extDlTaskBox" style="border-top:1px solid var(--line,#eee);margin-top:.6rem;padding-top:.6rem">'
+        +'<div class="row" style="align-items:center;justify-content:space-between">'
+        +'<label style="margin:0">最近视频号下载任务<span style="font-size:.72rem;color:var(--muted)">（只读监控，不自动重试）</span></label>'
+        +'<button type="button" class="btn sm ghost" id="extDlTaskRefresh">刷新</button>'
+        +'</div>'
+        +'<div id="extDlTaskList" style="margin-top:.4rem;font-size:.78rem;color:var(--muted)">加载中…</div>'
+        +'</div>'
+        +'</div>'
+        +'<div id="qqLocalVideoBlock" style="border-top:1px solid var(--line,#eee);margin-top:.7rem;padding-top:.7rem">'
+        +'<div class="row" style="align-items:center;justify-content:space-between">'
+        +'<label style="margin:0">最近导入的本地视频 / 文件<span style="font-size:.72rem;color:var(--muted)">（点击打开结果，可预览本地视频）</span></label>'
+        +'<button type="button" class="btn sm ghost" id="localVideoRefresh">刷新</button>'
+        +'</div>'
+        +'<div id="localVideoList" style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">加载中…</div>'
+        +'</div>'
+        +'<details id="qqAdvancedBlock" style="margin-top:.7rem;font-size:.78rem;color:var(--muted);line-height:1.9">'
+        +'<summary style="cursor:pointer">高级选项 / 故障排查</summary>'
+        +'<div style="margin-top:.45rem"><button type="button" class="btn sm ghost" id="archOpen">打开文案输出文件夹</button></div>'
+        +'<div style="margin-top:.45rem"><b>手动指定监听目录</b>（用抓包工具导出时才需要）'
+        +'<div class="row" style="margin-top:.3rem">'
+        +'<input type="text" id="watchDir" placeholder="留空 = 自动使用下载器的下载目录" style="flex:1">'
+        +'<button type="button" class="btn sm" id="watchStart">开始监听</button>'
+        +'<button type="button" class="btn sm ghost" id="watchStop">停止</button>'
+        +'</div></div>'
+        +'<div style="margin-top:.8rem"><b>直链下载</b>（其它平台的 mp4 / m3u8 资源地址，非平台分享链接）'
+        +'<div class="row" style="margin-top:.3rem">'
+        +'<input type="text" id="extDlUrl" placeholder="粘贴视频直链（mp4 / m3u8）" style="flex:1">'
+        +'<button type="button" class="btn sm" id="extDlGo">提交直链下载</button>'
+        +'</div><div style="font-size:.72rem;color:var(--muted);margin-top:.25rem">直链由本工具本地下载，不依赖下载器是否在线。</div></div>'
+        +'<div style="margin-top:.8rem;font-size:.75rem">'
+        +'· 每条成功的文案会自动存一份到项目旁的「<b>文案输出</b>」文件夹（日期_标题.txt），可直接打开查看。<br>'
+        +'· 下载器不再随工具自动启动（避免长期接管系统代理）；用视频号时点一次「启动下载器」。运行期间系统代理指向 127.0.0.1:2023（全机流量经它，停止后自动还原；服务退出时也会自动还原）。<br>'
+        +'· 下载时请让视频号页面保持打开（否则提示 socket 未初始化）。<br>'
+        +'· 启动失败：看下载器窗口/托盘有无待确认弹窗，或查日志 %LocalAppData%\\Temp\\wx_channels_download\\app.log。<br>'
+        +'· 其它方式：抓包导出 + 上面的手动监听；或 <a href="#" onclick="window.open(\'#/file/video\',\'_blank\');return false" style="text-decoration:underline">上传文件提取</a>；不想自动启动下载器：启动前设 TRANSCRIPT_EXT_DL_AUTOSTART=0。<br>'
+        +'· <b>图片也能丢进监听目录</b>：一次丢进去的那一批图片（比如抖音图集从 App 保存下来的那几张）会自动做 <b>OCR</b>，合成<b>一条</b>文案；单张图片就出单条。'
+        +'</div>'
+        +'</details>'
+        +'</div>'
+        + (key==='qqvideo'
+            ? '<div id="qqResultTabs" class="row" style="display:none;gap:.4rem;flex-wrap:wrap;margin:1rem 0 .2rem;position:sticky;top:8px;z-index:40;background:rgba(255,255,255,.94);backdrop-filter:blur(6px);border-radius:10px;padding:.35rem .4rem"></div>'
+            : '')
+        +'<div id="vresult"'+(key==='qqvideo'?' data-stack="1"':'')+'></div>';
+    }
+    return '<div class="hero"><h1>'+nm+'视频文案提取</h1>'
+      +'<p>粘贴 '+nm+' 视频链接，自动提取标题、简介与口播文案</p></div>'
+      +'<div class="card">'
+      +'<label>'+nm+'视频链接（网页链接或 App 分享链接均可）</label>'
+      +'<textarea id="vurl" rows="2" placeholder="'+ph+'"></textarea>'
+      + hint
+      +'<div class="row">'
+      +'<select id="vwhisper"><option value="tiny">tiny · 最快（准确率较低）</option><option value="small">small · 推荐（又快又准）</option><option value="medium" selected>medium · 更准（速度约慢 3 倍，默认）</option><option value="large-v3">large-v3 · 最准（最慢）</option></select><span class="h-sub">首次使用会自动下载该模型（75MB ~ 3GB，越大越准也越慢）</span>'
+      +'<button class="btn" id="vbtn">提取文案</button>'
+      +'</div>'
+      +'<label style="display:flex;align-items:center;gap:.4rem;margin-top:.45rem;font-size:.8rem;color:#374151;cursor:pointer">'
+      +'<input type="checkbox" id="vframes"> 同时识别画面文字（OCR 画面里的字幕/文字；抖音/快手/小红书默认勾选）</label>'
+      +'<div class="msg" id="vmsg"></div>'
+      +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
+        +'</div>'
+        +'<div id="vresult"></div>';
+  },
+
+  batch(){
+    return '<div class="hero"><h1>批量提取文案</h1>'
+      +'<p>一次粘贴多条链接或整段分享文案，自动排队逐个提取（支持抖音 / 小红书 / 快手 / B站；视频号暂不支持）</p></div>'
+      +'<div class="card">'
+      +'<label>链接列表（每行一条）</label>'
+      +'<textarea id="burls" rows="6" placeholder="每行一条链接或整段分享文案"></textarea>'
+      +'<div class="input-hint">'
+      +  '<div class="hint-row"><span class="hint-tag">抖音</span><code>https://v.douyin.com/xxxx/</code></div>'
+      +  '<div class="hint-row"><span class="hint-tag">B站</span><code>https://www.bilibili.com/video/BVxxxx…</code></div>'
+      +  '<div class="hint-row"><span class="hint-tag">小红书</span><code>https://www.xiaohongshu.com/explore/xxxx…</code></div>'
+      +  '<div class="hint-row"><span class="hint-note">每行一条；也支持快手、B站，可直接粘贴整段分享文案</span></div>'
+      +'</div>'
+      +'<div class="row">'
+      +'<select id="bwhisper"><option value="tiny">tiny · 最快（准确率较低）</option><option value="small">small · 推荐（又快又准）</option><option value="medium" selected>medium · 更准（速度约慢 3 倍，默认）</option><option value="large-v3">large-v3 · 最准（最慢）</option></select><span class="h-sub">首次使用会自动下载该模型（75MB ~ 3GB，越大越准也越慢）</span>'
+      +'<button class="btn" id="bbtn">开始批量提取</button>'
+      +'</div>'
+      +'<div class="msg" id="bmsg"></div>'
+      +'</div>'
+      +'<div id="bresult"></div>';
+  },
+
+  image(key){
+    return '<div class="hero"><h1>图片文案提取</h1><p>OCR 识别图片中的文字（上传图片即可）</p></div>'
+      +'<div class="card">'
+      +'<label>上传图片</label>'
+      +'<div class="dropzone" id="idz"><div class="dz-ico">📷</div><p>点击选择，或拖拽图片到这里</p><small>支持 jpg / png / webp</small>'
+      +'<input type="file" id="ifile" accept="image/*" style="display:none"></div>'
+      +'<div class="msg" id="imsg"></div>'
+      +'<div class="loading" id="iload"><div class="spinner"></div><span>正在识别...</span></div>'
+      +'</div>'
+      +'<div id="iresult"></div>';
+  },
+
+  file(mode){
+    const audio = mode==='audio';
+    const title = audio ? '录音转文字' : '视频转文字';
+    const frames = audio ? '' : '<label style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem;font-size:.8rem;color:#374151;cursor:pointer"><input type="checkbox" id="fframes"> 同时识别画面文字（OCR 视频内嵌字幕/文字，较慢）</label>';
+    const hint  = audio
+      ? '支持 mp3 / wav / m4a / aac / ogg / flac 等'
+      : '支持 mp4 / mov / mkv / avi / webm / flv 等；视频号等无法直接解析的视频，可先保存到本机再上传';
+    return '<div class="hero"><h1>'+title+'</h1><p>'+(audio?'上传录音，转写为文字稿':'上传视频，转写视频中的语音为文字')+'</p></div>'
+      +'<div class="card">'
+      +'<label>选择文件</label>'
+      +'<div class="dropzone" id="fdz"><div class="dz-ico">'+(audio?'🎙️':'🎬')+'</div><p>点击选择，或拖拽文件到这里</p><small>'+hint+'</small>'
+      +'<input type="file" id="ffile" accept="'+(audio?'.mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,.amr':'.mp4,.mov,.mkv,.avi,.webm,.flv,.m4v')+'" style="display:none"></div>'
+      +'<div class="row"><span id="fname" style="font-size:.85rem;color:var(--muted)"></span>'
+      +'<select id="fwhisper"><option value="tiny">tiny · 最快（准确率较低）</option><option value="small">small · 推荐（又快又准）</option><option value="medium" selected>medium · 更准（速度约慢 3 倍，默认）</option><option value="large-v3">large-v3 · 最准（最慢）</option></select><span class="h-sub">首次使用会自动下载该模型（75MB ~ 3GB，越大越准也越慢）</span>'
+      +'<button class="btn" id="fbtn" disabled>上传并转写</button></div>'
+      +frames
+      +'<div class="msg" id="fmsg"></div>'
+      +'<div class="loading" id="fload"><div class="spinner"></div><span id="floadtxt">正在转写...</span></div>'
+      +'</div>'
+      +'<div id="fresult"></div>';
+  },
+
+  history(){
+    const back = resultSnap
+      ? '<div class="row" style="margin-bottom:1rem"><button class="btn sm ghost" id="hBack">← 返回「'+viewLabel(resultSnap.view, resultSnap.key)+'」</button></div>'
+      : '';
+    return '<div class="hero"><h1>历史记录</h1>'
+      +'<p>查看处理过的所有视频 / 图片 / 文件提取记录</p></div>'
+      + back
+      +'<div class="card">'
+      +'<div class="row" style="margin-bottom:1rem">'
+      +  '<input type="text" id="hKeyword" placeholder="搜索标题 / 文案 / 链接 / 平台" style="flex:1">'
+      +  '<select id="hStatus"><option value="">全部状态</option>'
+      +    '<option value="SUCCESS">成功</option><option value="FAILURE">失败</option></select>'
+      +  '<button class="btn sm" id="hSearch">搜索</button>'
+      +  '<button class="btn sm ghost" id="hClear">清空</button>'
+      +'</div>'
+      +'<div id="hList" style="min-height:200px"></div>'
+      +'<div class="row" id="hPager"></div>'
+      +'</div>';
+  },
+};
+
+// ---------- 通用结果渲染 ----------
+// 视频源不可用（防盗链/链接过期）时隐藏预览，不给用户一个转圈的坏播放器
+window.hideMedia=function(el){
+  try{
+    const box=el.closest('.media');
+    if(box){
+      box.innerHTML='<div style="color:var(--muted);font-size:.85rem;padding:.4rem 0">'
+        +'视频源已过期或不可访问，已隐藏预览；重新提取即可再次尝试。</div>';
+    }
+  }catch(e){}
+};
+
+function renderVideoResult(d, into){
+  const tid=d.taskId||'';
+  const tidEsc=escapeHtml(tid);
+  // 封面走代理，补 Referer，避免平台防盗链导致裂图
+  const coverUrl=d.cover ? (tid ? API+'/media/cover?taskId='+encodeURIComponent(tid) : d.cover) : '';
+  const coverEsc=escapeHtml(coverUrl);
+  const platform=escapeHtml(d.platform||'通用');
+  const title=escapeHtml(d.title||'(无标题)');
+  const content=escapeHtml(d.content||'(无简介)');
+  const text=escapeHtml(d.textContent||'(未识别到语音：该视频可能没有口播，例如纯音乐/MV/风景片；下方"作品简介"是作者的标题与话题)');
+  const bv=/BV[0-9A-Za-z]{6,}/.exec(d.webpageUrl||'')?.[0] || '';
+  const biliUrl=(d.platform==='B站' && bv)
+    ? 'https://player.bilibili.com/player.html?bvid='+encodeURIComponent(bv)+'&page=1&autoplay=0&high_quality=1&danmaku=0'
+    : '';
+  // 抖音/快手直链几小时过期：给这两个平台一个「刷新直链」（只重取详情，不重跑转写）
+  const canRefresh=((d.platform==='抖音'||d.platform==='快手') && !!tid) ? true : false;
+  // 各按钮的悬停说明（挂在按钮本身上，不额外加图标）
+  const TIPS={
+    refresh:'抖音/快手的视频直链是平台 CDN 的临时地址，几小时后会过期：'
+      +'过期后预览会黑屏、截图失败、保存视频下不动。\n'
+      +'点「刷新直链」只重新取一次平台详情、把新地址换上——不会重新转写，文案不动，也不会新建记录。\n'
+      +'只有抖音/快手需要它（其它平台直链不过期）。',
+    export:'把这条文案导出成文件：txt / Markdown / Word / Excel / SRT 字幕（带时间轴）。\n'
+      +'弹窗里还能勾「仅文案」——只导出正文，不带标题、简介和来源链接。',
+    correct:'用大模型修同音字/错别字和繁体字（只输出「替换对」，本地校验后应用，不会重写句子）。\n'
+      +'原文始终保留，改完会列出逐条改动清单；导出时可以选「原始 / 纠错版」。',
+    note:'把文案整理成结构化笔记：核心要点 / 金句 / 术语，并在文末附完整转录。\n'
+      +'长文案按块处理不会截断，耗时约 20~60 秒（比纠错慢，因为它要通读全文）。',
+    copy:'把上方的口播文案复制到剪贴板（复制的是当前显示的简/繁体版本）。',
+  };
+  const mediaTick=window.MEDIA_TICK?'&v='+window.MEDIA_TICK:'';
+  const h='<div class="card" data-task-id="'+tidEsc+'">'
+    +'<div class="meta">'
+    +  '<span class="pill platform">'+platform+'</span>'
+    +  (d.duration?'<span class="pill dur">时长 '+fmtDur(d.duration)+'</span>':'')
+    +  '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
+    +  (canRefresh?'<button class="copy" data-refresh-media="'+tidEsc+'"'
+                  +' data-tip="'+escapeHtml(TIPS.refresh)+'">刷新直链</button>':'')
+    +  (window.AI_ENABLED ? '<button class="copy" data-ai-correct="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.correct)+'">AI 纠错</button>' : '')
+    +  (window.AI_ENABLED ? '<button class="copy" data-ai-note="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.note)+'">生成笔记</button>' : '')
+    +  '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>'
+    +'</div>'
+    +'<div class="result-title">'+title+'</div>'
+    +'<div class="section-label">作品简介 / 话题标签</div>'
+    +'<div class="desc" data-copy-src="desc">'+content+'</div>'
+    +'<div class="section-label" style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">'
+    +  '<span>口播文案（全片语音转写）</span>'
+    +  '<span class="variant-switch" data-variant-switch>'
+    +    '<button type="button" class="active" data-variant="s">简体</button>'
+    +    '<button type="button" data-variant="t">繁体</button>'
+    +  '</span>'
+    +'</div>'
+    +'<div class="transcript" data-copy-src="txt">'+text+'</div>'
+    +(d.frameText
+      ? '<div class="section-label" style="margin-top:.7rem">画面文字（OCR · 画面中出现的文字，与口播分开）</div>'
+        +'<div class="transcript" style="max-height:300px;overflow:auto">'+escapeHtml(d.frameText)+'</div>'
+      : '')
+    +'<div id="aiBox-'+tidEsc+'"></div>'
+    +'<div id="noteBox-'+tidEsc+'"></div>'
+    +(d.videoUrlList&&d.videoUrlList.length
+      ? '<div class="section-label">视频预览</div>'
+        + (biliUrl
+            ? '<div class="row" style="margin:.1rem 0 .35rem">'
+              + '<button type="button" class="btn sm" data-player-mode="proxy">站内预览（静音）</button>'
+              + '<button type="button" class="btn sm ghost" data-player-mode="bili">B站播放器（带声音）</button>'
+              + '<span style="color:var(--muted);font-size:.76rem">官方播放器直连 B站，可能有广告/弹幕，清晰度受登录状态影响</span>'
+              + '</div>'
+            : '')
+        +'<div class="media" data-player-media data-bili="'+escapeHtml(biliUrl)+'">'
+        +'<video src="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+mediaTick+'"'
+        +(coverUrl?' poster="'+escapeHtml(API+'/media/cover?taskId='+encodeURIComponent(d.taskId||''))+'"':'')
+        +' controls preload="metadata" onerror="hideMedia(this)"></video>'
+        +'<div class="row" style="margin-top:.5rem">'
+        +'<a class="btn sm ghost" style="text-decoration:none" href="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+'&download=1'+mediaTick+'">保存视频</a>'
+        +'<span style="color:var(--muted);font-size:.78rem">'
+        +(canRefresh?'视频源来自平台 CDN，几小时后会过期；过期点上方「刷新直链」即可（无需重新提取）'
+                    :'视频源来自平台 CDN，链接可能过期；过期请重新提取')
+        +'</span>'
+        +'</div></div>'
+      :'')
+    +(d.videoUrlList&&d.videoUrlList.length
+      ? '<div class="section-label" id="framesLabel-'+tidEsc+'">视频截图</div>'
+        +'<div class="frame-strip" id="frames-'+tidEsc+'" data-task="'+tidEsc+'" data-cover="'+escapeHtml(coverUrl)+'"></div>'
+      : (coverUrl? '<div class="section-label">封面</div><img class="cover" src="'+coverEsc+'" onerror="this.style.display=\'none\'">':''))
+    +'</div>';
+  // 堆叠模式（容器带 data-stack，视频号页用）：新结果插到最上面，旧结果保留在下方，最多 5 条
+  if (into.dataset && into.dataset.stack !== undefined) {
+    into.querySelectorAll(':scope > .card').forEach((c, i, arr) => {
+      if (arr.length - i >= 5) c.remove();   // 插入新卡后保留最新 5 条
+    });
+    const wrap = document.createElement('div');
+    wrap.innerHTML = h;
+    const card = wrap.firstElementChild;
+    const head = document.createElement('div');
+    head.className = 'row';
+    head.style.cssText = 'justify-content:space-between;margin:0 0 .4rem';
+    head.innerHTML = '<span class="pill platform">刚提取</span>'
+      + '<span style="font-size:.72rem;color:var(--muted)">新的结果会插入最上方，本页保留最近 5 条；点上方结果标签可跳转</span>';
+    card.prepend(head);
+    into.insertBefore(card, into.firstChild);
+    initTranscriptVariant(card);
+    if (d.videoUrlList && d.videoUrlList.length) captureFrames(card, d.taskId || '');
+    refreshQqResultTabs();
+    return;
+  }
+  into.innerHTML=h;
+  initTranscriptVariant(into);
+  if(d.videoUrlList&&d.videoUrlList.length) captureFrames(into, d.taskId||'');
+}
+
+// 视频号结果堆叠的快速切换标签（点击滚动到对应结果）
+function refreshQqResultTabs(){
+  const bar = document.getElementById('qqResultTabs');
+  if(!bar) return;
+  const cards = [...document.querySelectorAll('#vresult > .card')];
+  syncQqEmptyState();
+  if(!cards.length){ bar.style.display='none'; bar.innerHTML=''; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = cards.map((card, i)=>{
+    const t = ((card.querySelector('.result-title')||{}).innerText || ('结果 '+(i+1))).replace(/\s+/g,' ').trim().slice(0,22);
+    return '<button type="button" class="btn sm'+(i===0?'':' ghost')+'" data-qq-jump="'+i+'">'+(i+1)+'. '+escapeHtml(t)+'</button>';
+  }).join('');
+}
+if(!window.__qqTabsBound){
+  window.__qqTabsBound = true;
+  document.addEventListener('click', e=>{
+    const b = e.target.closest('[data-qq-jump]');
+    if(!b) return;
+    const bar = b.closest('#qqResultTabs');
+    if(!bar) return;
+    const idx = parseInt(b.dataset.qqJump || '0', 10);
+    const cards = [...document.querySelectorAll('#vresult > .card')];
+    const card = cards[idx];
+    if(card) card.scrollIntoView({behavior:'smooth', block:'start'});
+    bar.querySelectorAll('[data-qq-jump]').forEach(x=>{ x.className='btn sm'+(x===b?'':' ghost'); });
+  });
+}
+
+// 从视频里截 5 帧做缩略图带（同源代理，可画进 canvas）；失败则退回单张封面
+function captureFrames(box, taskId){
+  const strip=box.querySelector('#frames-'+taskId);
+  if(!strip || !taskId) return;
+  strip.innerHTML='<div style="grid-column:1/-1;color:var(--muted);font-size:.8rem;padding:.2rem 0">视频截图中…</div>';
+  const cover=strip.dataset.cover||'';
+  const v=document.createElement('video');
+  v.muted=true; v.preload='metadata'; v.playsInline=true;
+  v.style.cssText='position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+  document.body.appendChild(v);
+  const cleanup=()=>{ try{ v.removeAttribute('src'); v.load(); }catch(e){} v.remove(); };
+  const fail=()=>{
+    if(strip.isConnected){
+      const label=box.querySelector('#framesLabel-'+taskId);
+      if(cover){ if(label) label.textContent='封面'; strip.outerHTML='<img class="cover" src="'+cover+'" onerror="this.style.display=\'none\'">'; }
+      else { if(label) label.remove(); strip.remove(); }
+    }
+    cleanup();
+  };
+  const seek=t=>new Promise((res,rej)=>{
+    const to=setTimeout(()=>rej(new Error('seek timeout')),6000);
+    v.onseeked=()=>{ clearTimeout(to); res(); };
+    v.currentTime=t;
+  });
+  (async()=>{
+    try{
+      await new Promise((res,rej)=>{
+        const to=setTimeout(()=>rej(new Error('metadata timeout')),20000);
+        v.onloadedmetadata=()=>{ clearTimeout(to); res(); };
+        v.onerror=()=>{ clearTimeout(to); rej(new Error('video error')); };
+        v.src=API+'/media/proxy?taskId='+encodeURIComponent(taskId)+(window.MEDIA_TICK?'&v='+window.MEDIA_TICK:'');
+      });
+      const dur=v.duration;
+      if(!isFinite(dur)||dur<1) throw new Error('bad duration');
+      const shots=[];
+      for(const p of [0.08,0.28,0.5,0.72,0.92]){
+        await seek(Math.min(Math.max(dur*p,0.05), Math.max(dur-0.05,0.05)));
+        if(!strip.isConnected) throw new Error('detached');
+        const w=Math.min(960, v.videoWidth||960);
+        const h=Math.max(1, Math.round(w*(v.videoHeight||720)/(v.videoWidth||1280)));
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        const ctx=c.getContext('2d');
+        ctx.drawImage(v,0,0,w,h);
+        // 首帧解码可能晚于 seeked 事件（GPU 忙时），等一拍补绘一次防黑帧
+        await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,120)));
+        ctx.drawImage(v,0,0,w,h);
+        shots.push(c.toDataURL('image/jpeg',0.72));
+      }
+      if(!strip.isConnected) throw new Error('detached');
+      strip.innerHTML=shots.map((src,i)=>'<img src="'+src+'" alt="视频截图 '+(i+1)+'">').join('');
+      cleanup();
+    }catch(e){ fail(); }
+  })();
+}
+
+// ---------- 截图预览：悬停浮空放大 + 点击灯箱 ----------
+function framePeekEl(){
+  let el=document.getElementById('framePeek');
+  if(!el){
+    el=document.createElement('div');
+    el.id='framePeek';
+    el.innerHTML='<img alt="">';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function showFramePeek(thumb){
+  const src=thumb.currentSrc||thumb.src;
+  if(!src) return;
+  const box=framePeekEl(), pic=box.querySelector('img');
+  pic.src=src;
+  const nw=thumb.naturalWidth||480, nh=thumb.naturalHeight||270;
+  const vw=window.innerWidth, vh=window.innerHeight;
+  let w=Math.min(560, Math.max(320, vw*0.45));
+  let h=w*nh/nw;
+  const maxH=vh*0.7;
+  if(h>maxH){ h=maxH; w=h*nw/nh; }
+  pic.style.width=Math.round(w)+'px';
+  pic.style.height=Math.round(h)+'px';
+  const r=thumb.getBoundingClientRect();
+  const left=Math.max(8, Math.min(r.left+r.width/2-w/2, vw-w-8));
+  let top=r.top-h-10;
+  if(top<8) top=Math.min(r.bottom+10, vh-h-8);
+  box.style.left=Math.round(left)+'px';
+  box.style.top=Math.round(top)+'px';
+  box.style.opacity='1';
+}
+
+function hideFramePeek(){
+  const el=document.getElementById('framePeek');
+  if(el) el.style.opacity='0';
+}
+
+function closeFrameLightbox(){
+  const lb=document.getElementById('frameLightbox');
+  if(lb) lb.classList.remove('open');
+  document.body.style.overflow='';
+}
+
+function openFrameLightbox(src){
+  if(!src) return;
+  let lb=document.getElementById('frameLightbox');
+  if(!lb){
+    lb=document.createElement('div');
+    lb.id='frameLightbox';
+    lb.innerHTML='<img alt="视频截图">';
+    lb.addEventListener('click', closeFrameLightbox);
+    lb.querySelector('img').addEventListener('click', e=>e.stopPropagation());
+    document.body.appendChild(lb);
+  }
+  lb.querySelector('img').src=src;
+  lb.classList.add('open');
+  document.body.style.overflow='hidden';
+  hideFramePeek();
+}
+
+if(!window.__framePreviewBound){
+  window.__framePreviewBound=true;
+  document.addEventListener('mouseover', e=>{
+    const img=e.target.closest('.frame-strip img');
+    if(img) showFramePeek(img);
+  });
+  document.addEventListener('mouseout', e=>{
+    const img=e.target.closest('.frame-strip img');
+    if(img && !img.contains(e.relatedTarget)) hideFramePeek();
+  });
+  document.addEventListener('click', e=>{
+    const img=e.target.closest('.frame-strip img');
+    if(img){ e.preventDefault(); openFrameLightbox(img.src); }
+  });
+  document.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ closeFrameLightbox(); hideFramePeek(); }
+  });
+  window.addEventListener('scroll', hideFramePeek, true);
+}
+
+// ---------- B站官方播放器（带声音）：按需加载，切走即销毁 ----------
+function stopBiliPlayer(){
+  document.querySelectorAll('.bili-embed').forEach(x=>x.remove());
+  document.querySelectorAll('[data-player-media] video').forEach(v=>{ v.style.display=''; });
+  document.querySelectorAll('[data-player-mode]').forEach(b=>{
+    b.className='btn sm'+(b.dataset.playerMode==='proxy'?'':' ghost');
+  });
+}
+
+if(!window.__playerSwitchBound){
+  window.__playerSwitchBound=true;
+  document.addEventListener('click', e=>{
+    const btn=e.target.closest('[data-player-mode]'); if(!btn) return;
+    const card=btn.closest('.card');
+    const media=card ? card.querySelector('[data-player-media]') : null;
+    if(!media) return;
+    const mode=btn.dataset.playerMode;
+    const video=media.querySelector('video');
+    if(mode==='bili'){
+      const src=media.dataset.bili; if(!src) return;
+      if(video) video.pause();
+      media.querySelectorAll('.bili-embed').forEach(x=>x.remove());
+      const wrap=document.createElement('div');
+      wrap.className='bili-embed';
+      wrap.innerHTML='<iframe src="'+src+'" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>';
+      media.insertBefore(wrap, media.firstChild);
+      if(video) video.style.display='none';
+    }else{
+      media.querySelectorAll('.bili-embed').forEach(x=>x.remove());
+      if(video) video.style.display='';
+    }
+    card.querySelectorAll('[data-player-mode]').forEach(b=>{
+      b.className='btn sm'+(b.dataset.playerMode===mode?'':' ghost');
+    });
+  });
+}
+
+/* ---------- 简/繁切换（默认简体） ---------- */
+async function convertVariant(text, to){
+  try{
+    const r=await fetch(API+'/text/convert',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:text,to:to})});
+    const j=await r.json();
+    return (j && j.data && j.data.text) || text;
+  }catch(e){ return text; }
+}
+
+function initTranscriptVariant(box){
+  const el=box.querySelector('.transcript[data-copy-src="txt"]');
+  const sw=box.querySelector('[data-variant-switch]');
+  if(!el || !sw) return;
+  // 原文只保留一次（已有就复用，快照恢复场景不要覆盖）
+  if(!el.dataset.original) el.dataset.original = el.textContent;
+
+  const setActive=(v)=>sw.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.variant===v));
+  const apply=async(v)=>{
+    setActive(v);
+    const cacheKey = (v==='t') ? 't' : 's';
+    if(!el.dataset[cacheKey]){
+      el.dataset[cacheKey] = await convertVariant(el.dataset.original, cacheKey);
+    }
+    el.textContent = el.dataset[cacheKey];
+  };
+  sw.addEventListener('click', e=>{
+    const b=e.target.closest('[data-variant]'); if(!b) return;
+    apply(b.dataset.variant);
+  });
+  apply('s');   // 默认简体
+}
+function renderBatchResult(items){
+  const ok=items.filter(i=>i.status==='SUCCESS').length, fail=items.filter(i=>i.status==='FAILURE').length,
+        run=items.filter(i=>['RUNNING','PENDING'].includes(i.status)).length;
+  const pct=items.length? Math.round((items.length-run)/items.length*100):0;
+  let h='<div class="card" style="margin-top:1.2rem">'
+    +'<div class="meta"><span class="pill platform">共 '+items.length+' 条</span>'
+    +'<span class="pill dur">成功 '+ok+'</span><span class="pill status">进行中 '+run+'</span>'
+    +(fail?'<span class="pill" style="background:#fef2f2;color:#b91c1c">失败 '+fail+'</span>':'')
+    +'<button class="copy" data-copy="batch">复制全部</button></div>'
+    +'<div class="batch-progress"><div style="width:'+pct+'%"></div></div>';
+  items.forEach((it,i)=>{
+    const tag = it.status==='SUCCESS'?'<span class="status-tag ok">成功</span>'
+              : it.status==='FAILURE'?'<span class="status-tag fail">失败</span>'
+              : '<span class="status-tag run">'+(it.status==='PENDING'?'排队':'处理中')+'</span>';
+    const url=escapeHtml(it.url||it.title||it.taskId||'');
+    const body=escapeHtml(it.textContent||it.errorMessage||'(等待中)');
+    const title=escapeHtml(it.title||'');
+    h+='<div class="batch-item"><div class="head">'
+      +'<span class="pidx">#'+(i+1)+'</span>'+tag
+      +'</div><div class="url">'+url+'</div>'
+      +'<div class="txt">'+body+'</div>'
+      +'<div class="result-title" style="font-size:.85rem;margin-top:.2rem">'+title+'</div>'
+      +'</div>';
+  });
+  h+='</div>';
+  return h;
+}
+function renderImageResult(txt, into, taskId){
+  const tid=escapeHtml(taskId||'');
+  const body=escapeHtml(txt||'(未识别到文字)');
+  into.innerHTML='<div class="card" data-task-id="'+tid+'"><div class="meta"><span class="pill platform">OCR</span>'
+    +'<button class="copy" data-copy="txt">复制全文</button></div>'
+    +'<div class="section-label">识别文字</div>'
+    +'<div class="transcript" data-copy-src="txt">'+body+'</div></div>';
+}
+function fmtDur(s){ s=Math.round(s); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+
+// ---------- 导航 & 渲染控制 ----------
+let currentView='home', currentKey='';
+
+// ---------- 结果区快照 ----------
+// 问题：showView() 切视图会整块重渲染 view，导致"提取完 → 点历史记录 → 切回来"时
+//       结果卡（含视频预览/导出/AI 按钮）全部消失，只剩空表单。
+// 方案：离开前把当前视图的结果容器 HTML 存快照（按 视图+平台key 区分），
+//       切回同一视图时原样还原。按钮都走 document 级事件委托，还原后无需重新绑定。
+const RESULT_CONTAINERS = { video:['vresult'], batch:['bresult'], image:['iresult'], file:['fresult'] };
+let resultSnap = null;
+
+function snapshotResult(){
+  const ids = RESULT_CONTAINERS[currentView];
+  if(!ids) return;
+  const snap = {}; let has = false;
+  ids.forEach(id=>{
+    const el = document.getElementById(id);
+    if(el && el.innerHTML.trim()){ snap[id] = el.innerHTML; has = true; }
+  });
+  resultSnap = has ? { view: currentView, key: currentKey||'', snap } : null;
+}
+
+function restoreResult(viewId, key){
+  if(!resultSnap || resultSnap.view !== viewId || resultSnap.key !== (key||'')) return;
+  Object.entries(resultSnap.snap).forEach(([id, html])=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerHTML = html;
+    // innerHTML 恢复不会带回直接绑定的监听器，简/繁开关要重新初始化
+    if(el.dataset && el.dataset.stack !== undefined){
+      el.querySelectorAll(':scope > .card').forEach(card=>{
+        if(card.querySelector('[data-variant-switch]')) initTranscriptVariant(card);
+      });
+    }else if(el.querySelector('[data-variant-switch]')) initTranscriptVariant(el);
+    // 离开时截图还没生成完 → 回来补一次
+    el.querySelectorAll('.frame-strip').forEach(s=>{
+      if(s.dataset.task && !s.querySelector('img')) captureFrames(el, s.dataset.task);
+    });
+  });
+  refreshQqResultTabs();
+}
+
+const $=s=>document.querySelector(s);
+
+function applyKeyOnActive(section){
+  const items = document.querySelectorAll('.dd-item');
+  items.forEach(el=>{ el.classList.toggle('active', el.dataset.navTo===section); });
+}
+
+function showView(id, key='', pushState=false){
+  const fromTaskUrl=/[?&]task=/.test(location.hash);
+  closeFrameLightbox();
+  hideFramePeek();
+  stopBiliPlayer();
+  snapshotResult();          // 离开前保存当前结果区（防止切走即丢失）
+  currentView=id; currentKey=key;
+  // 顶部导航高亮
+  document.querySelectorAll('[data-nav]').forEach(n=>n.classList.remove('active'));
+  const homeNav=document.querySelector('[data-nav="home"]');
+  const extractNav=document.getElementById('extractLink');
+  const histNav=document.querySelector('[data-nav="history"]');
+  if(id==='home'){ homeNav&&homeNav.classList.add('active'); }
+  else if(id==='history'){ histNav&&histNav.classList.add('active'); }
+  else { extractNav&&extractNav.classList.add('active'); }
+  // 渲染
+  const v=document.getElementById('view-'+id);
+  v.className='view active'+(key?'':' ');
+  v.innerHTML=views[id](key, );
+  const container=document.querySelector('.container');
+  if(container) container.classList.toggle('qq-wide', id==='video' && key==='qqvideo');
+  document.querySelectorAll('.view').forEach(x=>{ if(x!==v) x.className='view'; });
+  // 事件绑定
+  bindViewEvents();
+  // 还原上次的提取结果（同一视图+同一平台才还原）
+  restoreResult(id, key);
+  // 回到有进行中任务的页面：恢复进度并继续轮询（带 ?task= 的历史结果页不抢）
+  if(!fromTaskUrl) resumeActive(id, key);
+  // 历史视图加载数据
+  if(id==='history' && window.loadHistory) window.loadHistory();
+  // 账号页加载登录状态
+  if(id==='accounts' && window.loadAccounts) window.loadAccounts();
+  // 同步 URL 与标签页标题（replaceState 不触发 hashchange，不会造成循环渲染）
+  const wantHash = '#/' + id + (key ? '/' + key : '');
+  if (location.hash !== wantHash) {
+    try {
+      // 顶部导航/站内跳转用 pushState，浏览器后退才能回到上一视图（并还原结果）
+      if (pushState) history.pushState(null, '', wantHash);
+      else history.replaceState(null, '', wantHash);
+    } catch(e) {}
+  }
+  setPageTitle(id, key);
+  window.scrollTo({top:0});
+}
+
+// 视频号页两列布局：左侧 1/3（最近导入 / 提取流程 / 高级选项），右侧 2/3（结果视频/截图）
+function layoutQqPage(){
+  const view=document.getElementById('view-video'); if(!view) return;
+  if(view.querySelector('.qq-layout')) return;
+  const flow=document.getElementById('qqFlowBlock');
+  const status=document.getElementById('qqStatusBlock');
+  const lv=document.getElementById('qqLocalVideoBlock');
+  const adv=document.getElementById('qqAdvancedBlock');
+  const tabs=document.getElementById('qqResultTabs');
+  const vres=document.getElementById('vresult');
+  if(!flow||!status||!lv||!adv||!tabs||!vres) return;
+  const hero=view.querySelector('.hero');
+  const oldCard=flow.parentElement;
+  const layout=document.createElement('div'); layout.className='qq-layout';
+  const side=document.createElement('div'); side.className='qq-side';
+  const main=document.createElement('div'); main.className='qq-main';
+  const reset=el=>{ if(!el) return; el.style.borderTop='0'; el.style.marginTop='0'; el.style.paddingTop='0'; };
+  const wrapCard=el=>{ const c=document.createElement('div'); c.className='card'; c.append(el); return c; };
+  reset(lv);
+  reset(status);
+  const flowCard=document.createElement('div'); flowCard.className='card';
+  flowCard.append(flow, status);
+  const advCard=document.createElement('div'); advCard.className='card';
+  advCard.append(adv);
+  side.append(flowCard, wrapCard(lv), advCard);
+  main.append(tabs, vres);
+  layout.append(side, main);
+  if(hero && hero.parentElement) hero.parentElement.insertBefore(layout, hero.nextSibling);
+  else view.append(layout);
+  if(oldCard && oldCard!==view && !oldCard.contains(flow)) oldCard.remove();
+  syncQqEmptyState();
+}
+
+// 有结果时左右两栏；没有结果时收回成居中单栏，避免右侧大片空白
+function syncQqEmptyState(){
+  const layout=document.querySelector('.qq-layout');
+  if(!layout) return;
+  layout.classList.toggle('qq-empty', !document.querySelector('#vresult > .card'));
+}
+
+function bindViewEvents(){
+  layoutQqPage();
+  // 历史记录：返回刚才的提取结果（仅在内存里还存有结果快照时出现）
+  const hBack=document.getElementById('hBack');
+  if(hBack) hBack.addEventListener('click', ()=>{
+    if(!resultSnap) return;
+    // 有 task id 就新标签打开结果页；没有才退回当前标签快照恢复
+    const html=Object.values(resultSnap.snap||{}).join('');
+    const m=/data-task-id="([^"]+)"/.exec(html);
+    if(m && m[1]){ window.open(resultUrlFor(resultSnap.view, resultSnap.key, m[1]), '_blank'); return; }
+    showView(resultSnap.view, resultSnap.key, true);
+  });
+  // 监听文件夹（仅视频号页有这些元素）
+  const wStart = $('#watchStart');
+  if(wStart){
+    wStart.addEventListener('click', startWatch);
+    const wStop = $('#watchStop');
+    if(wStop) wStop.addEventListener('click', stopWatch);
+    loadWatchStatus();
+  }
+  // 外部下载器（wx_channels_download）
+  const extGo = $('#extDlGo');
+  if(extGo){
+    extGo.addEventListener('click', extDlDownload);
+    loadExtDlStatus();
+  }
+  const extTaskRefresh = document.getElementById('extDlTaskRefresh');
+  if(extTaskRefresh){
+    extTaskRefresh.addEventListener('click', loadExtTasks);
+    loadExtTasks();
+  }
+  // 视频号：开始提取 + 打开文案输出文件夹
+  const qs = document.getElementById('qqStart');
+  if(qs){
+    qs.addEventListener('click', qqStartExtract);
+    qqWatchLoop();
+  }
+  const ao = document.getElementById('archOpen');
+  if(ao) ao.addEventListener('click', archOpenFolder);
+  // 最近导入的本地视频 / 文件
+  const localRefresh = document.getElementById('localVideoRefresh');
+  if(localRefresh){
+    localRefresh.addEventListener('click', loadLocalVideos);
+    loadLocalVideos();
+  }
+  // 历史记录：搜索 / 清空
+  const hsearch=$('#hSearch'); if(hsearch) hsearch.addEventListener('click',()=>{ window._hPage=1; loadHistory(); });
+  const hkw=$('#hKeyword'); if(hkw) hkw.addEventListener('keydown',e=>{ if(e.key==='Enter'){ window._hPage=1; loadHistory(); } });
+  const hclr=$('#hClear'); if(hclr) hclr.addEventListener('click',()=>{
+    if(confirm('确定清空全部历史记录？')){ fetch(API+'/history/clear',{method:'DELETE'}).then(r=>r.json()).then(()=>loadHistory()).catch(()=>{}); }
+  });
+  const hlist=$('#hList'); if(hlist) hlist.addEventListener('click',e=>{
+    const delBtn=e.target.closest('[data-hact="del"]');
+    const expBtn=e.target.closest('[data-hact="export"]');
+    const item=e.target.closest('.h-item');
+    if(!item||!item.dataset.id) return;
+    const id=item.dataset.id;
+    if(e.target.closest('.h-check')) return;
+    if(delBtn){ if(confirm('删除这条记录？')){ fetch(API+'/history/delete?taskId='+encodeURIComponent(id),{method:'DELETE'}).then(r=>r.json()).then(()=>loadHistory()); } }
+    else if(expBtn){ openExportModal([id]); }
+    else if(item.dataset.url){ window.open(item.dataset.url, '_blank'); }   // 「打开结果」/整行 → 新标签页
+  });
+  // 历史多选 / 批量导出：工具栏由 loadHistory 异步渲染，必须用 #hList 事件委托
+  if(hlist){
+    hlist.addEventListener('change',e=>{
+      const t=e.target;
+      if(t.id==='hSelectAll'){
+        const boxes=[...hlist.querySelectorAll('.h-check[data-hid]')];
+        boxes.forEach(c=>c.checked=t.checked);
+        const info=$('#hSelInfo'); if(info) info.textContent='已选 '+(t.checked?boxes.length:0)+' 条';
+      }else if(t.matches('.h-check[data-hid]')){
+        updateSelCount();
+      }
+    });
+    hlist.addEventListener('click',e=>{
+      if(e.target.closest('#hBatchExport')){
+        const ids=selectedHistoryIds();
+        if(!ids.length){ notify('请先勾选要导出的记录','error'); return; }
+        openExportModal(ids);
+      }
+    });
+  }
+  // 结果页"导出下载"按钮（全局只绑一次）
+  if(!window.__exportBound){
+    window.__exportBound=true;
+    document.addEventListener('click',e=>{
+      const b=e.target.closest('[data-export-task]');
+      if(!b) return;
+      const id=b.dataset.exportTask;
+      if(id) openExportModal([id]); else notify('暂无可导出的任务','error');
+    });
+  }
+  // 「刷新直链」（抖音/快手直链几小时过期）——只重取详情，不重跑转写
+  if(!window.__refreshMediaBound){
+    window.__refreshMediaBound=true;
+    document.addEventListener('click',e=>{
+      const b=e.target.closest('[data-refresh-media]');
+      if(!b) return;
+      refreshMedia(b.dataset.refreshMedia, b);
+    });
+  }
+  // 首页卡片：也新标签打开
+  document.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',()=>{
+    let url='';
+    if(el.dataset.go==='video') url=urlFor('video_text', el.dataset.key||'douyin');
+    else if(el.dataset.go==='batch') url=urlFor('batch');
+    else if(el.dataset.go==='image') url=urlFor('image', el.dataset.key||'ocr');
+    else if(el.dataset.go==='file') url=urlFor('file', el.dataset.key||'video');
+    if(url) window.open(url, '_blank');
+  }));
+  // 视频提取
+  const vbtn=$('#vbtn'); if(vbtn) vbtn.addEventListener('click', videoExtract);
+  const vurl=$('#vurl'); if(vurl) vurl.addEventListener('keydown',e=>{if(e.key==='Enter')videoExtract();});
+  // 批量
+  const bbtn=$('#bbtn'); if(bbtn) bbtn.addEventListener('click', batchExtract);
+  // 图片
+  const ibtn=$('#ibtn'); if(ibtn) ibtn.addEventListener('click', imgFromUrl);
+  bindDropzone('idz','ifile', file=>{ $('#imsg').className='msg'; $('#imsg').textContent=''; imgUpload(file); }, m=>{});
+  // 文件
+  const ff=$('#ffile'); if(ff){
+    ff.addEventListener('change',()=>{ const f=ff.files[0]; if(f){ $('#fname').textContent='已选择: '+f.name; $('#fbtn').disabled=false; }});
+    bindDropzone('fdz','ffile', null, file=>{ $('#fname').textContent='已选择: '+file.name; $('#fbtn').disabled=false; });
+    const fbtn=$('#fbtn'); if(fbtn) fbtn.addEventListener('click', fileExtract);
+  }
+  // 复制按钮（委托）
+  document.addEventListener('click', e=>{
+    const c=e.target.closest('[data-copy]');
+    if(!c) return;
+    const key=c.dataset.copy;
+    let src = c.closest('.card') ? c.closest('.card').querySelector('[data-copy-src="'+key+'"]') : null;
+    const text = src ? src.textContent : '';
+    if(text) copyText(text).then(()=>toast('已复制'));
+  });
+}
+
+// 拖拽上传
+function bindDropzone(dzSel, inputSel, onFile, helper){
+  const dz=document.querySelector((dzSel||'').startsWith('#')?dzSel:'#'+dzSel);
+  if(!dz) return;
+  const inp=document.querySelector((inputSel||'').startsWith('#')?inputSel:'#'+inputSel);
+  if(inp){
+    inp.addEventListener('change',()=>{ if(inp.files[0] && onFile) onFile(inp.files[0]); });
+    dz.addEventListener('click',()=>inp.click());
+  }
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f&&onFile) onFile(f); });
+}
+
+function copyText(t){ return navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject(); }
+let toastTimer=null;
+function toast(msg){ const m=$('#vmsg')||$('#bmsg')||$('#imsg')||$('#fmsg'); if(m){ m.className='msg success show'; m.textContent=msg; clearTimeout(toastTimer); toastTimer=setTimeout(()=>m.className='msg',1800);} }
+
+// ---------- 提取逻辑 ----------
+async function api(path, opt={}){
+  const r=await fetch(API+path, Object.assign({headers:{'Content-Type':'application/json'}}, opt));
+  return r.json();
+}
+
+// ---------- 进行中任务：切视图 / 刷新后仍能继续 ----------
+// 任务 ID 存 sessionStorage（仅本标签页）；轮询不缓存 DOM 引用，每次按 view/key 找当前元素。
+const ACTIVE_STORE='transcript_active_tasks_v1';
+const TASK_UI={
+  video:{load:'#vload', txt:'#vloadtxt', btn:'#vbtn', msg:'#vmsg', result:'#vresult', running:'正在提取', ok:'✓ 提取成功'},
+  file:{load:'#fload', txt:'#floadtxt', btn:'#fbtn', msg:'#fmsg', result:'#fresult', running:'正在转写', ok:'✓ 转写完成'},
+};
+let activeTasks={};
+try{ activeTasks=JSON.parse(sessionStorage.getItem(ACTIVE_STORE)||'{}')||{}; }catch(e){ activeTasks={}; }
+const taskPollers=new Set();
+
+function saveActive(){ try{ sessionStorage.setItem(ACTIVE_STORE, JSON.stringify(activeTasks)); }catch(e){} }
+function activeKey(view,key){ return view+'|'+(key||''); }
+function isCurrent(entry){ return currentView===entry.view && currentKey===(entry.key||''); }
+function taskUi(kind){
+  const cfg=TASK_UI[kind]||{};
+  const q=sel=>sel?document.querySelector(sel):null;
+  return {cfg, load:q(cfg.load), txt:q(cfg.txt), btn:q(cfg.btn), msg:q(cfg.msg), result:q(cfg.result)};
+}
+function setTaskLoading(entry,text){
+  const ui=taskUi(entry.kind);
+  if(ui.load) ui.load.className='loading show';
+  if(ui.txt && text) ui.txt.textContent=text;
+  if(ui.btn) ui.btn.disabled=true;
+}
+function clearTaskLoading(entry){
+  const ui=taskUi(entry.kind);
+  if(ui.load) ui.load.className='loading';
+  if(ui.btn) ui.btn.disabled=false;
+}
+function clearTaskParam(){
+  if(/[?&]task=/.test(location.hash)){
+    try{ history.replaceState(null,'',location.hash.split('?')[0]); }catch(e){}
+  }
+}
+function registerActive(entry){
+  activeTasks[activeKey(entry.view,entry.key)]=entry;
+  saveActive();
+}
+function removeActive(entry){
+  const k=activeKey(entry.view,entry.key);
+  if(activeTasks[k] && activeTasks[k].taskId===entry.taskId){ delete activeTasks[k]; saveActive(); }
+}
+function showTaskSuccess(entry,d){
+  if(!isCurrent(entry)) return;
+  const ui=taskUi(entry.kind);
+  if(ui.result) renderVideoResult(d, ui.result);
+  if(ui.msg){ ui.msg.className='msg success show'; ui.msg.textContent=ui.cfg.ok||'✓ 完成'; }
+  clearTaskLoading(entry);
+  snapshotResult();
+  try{ history.replaceState(null,'',resultUrlFor(entry.view, entry.key, entry.taskId)); }catch(e){}
+  if(ui.result) ui.result.scrollIntoView({behavior:'smooth'});
+  removeActive(entry);
+}
+function showTaskFailure(entry,msg){
+  if(!isCurrent(entry)) return;
+  const ui=taskUi(entry.kind);
+  clearTaskLoading(entry);
+  if(ui.msg){
+    ui.msg.className='msg error show';
+    if((msg||'').includes('监听目录')){
+      // 抖音图集等场景：给一个直达按钮，图片丢进去就自动成一条文案
+      ui.msg.innerHTML=escapeHtml('失败：'+(msg||'未知错误'))
+        +' <button type="button" class="btn sm ghost" data-open-watch>打开监听目录</button>';
+    }else{
+      ui.msg.textContent='失败：'+(msg||'未知错误');
+    }
+  }
+  removeActive(entry);
+  loadRiskStatus();
+}
+function pollTaskEntry(entry){
+  if(taskPollers.has(entry.taskId)) return;
+  taskPollers.add(entry.taskId);
+  const k=activeKey(entry.view,entry.key);
+  const tick=()=>{
+    if(activeTasks[k]?.taskId!==entry.taskId){ taskPollers.delete(entry.taskId); return; }
+    api('/transcript/queryTask?taskId='+encodeURIComponent(entry.taskId)).then(j=>{
+      if(activeTasks[k]?.taskId!==entry.taskId){ taskPollers.delete(entry.taskId); return; }
+      const d=j.data; if(!d) throw new Error('无数据');
+      if(d.status==='SUCCESS'){
+        entry.done=true; entry.status='SUCCESS'; saveActive();
+        taskPollers.delete(entry.taskId);
+        if(isCurrent(entry)) showTaskSuccess(entry,d);
+      } else if(d.status==='FAILURE'){
+        entry.done=true; entry.status='FAILURE'; entry.message=d.errorMessage||'任务失败'; saveActive();
+        taskPollers.delete(entry.taskId);
+        if(isCurrent(entry)) showTaskFailure(entry, entry.message);
+      } else {
+        entry.message=d.errorMessage||'处理中'; saveActive();
+        if(isCurrent(entry)) setTaskLoading(entry, (TASK_UI[entry.kind].running||'处理中')+'：'+entry.message+'...');
+        setTimeout(tick, 2000);
+      }
+    }).catch(e=>{
+      taskPollers.delete(entry.taskId);
+      // 服务重启后内存任务会丢 → 试历史记录（已完成的任务仍能恢复）
+      api('/history/detail?taskId='+encodeURIComponent(entry.taskId)).then(h=>{
+        const d=h.data;
+        if(d && d.status==='SUCCESS'){ entry.done=true; entry.status='SUCCESS'; saveActive(); if(isCurrent(entry)) showTaskSuccess(entry, historyToResult(d)); }
+        else if(d){ entry.done=true; entry.status='FAILURE'; saveActive(); if(isCurrent(entry)) showTaskFailure(entry, d.error_msg||'任务失败'); }
+        else if(isCurrent(entry)) showTaskFailure(entry, e.message);
+      }).catch(()=>{ if(isCurrent(entry)) showTaskFailure(entry, e.message); });
+    });
+  };
+  setTimeout(tick, 500);
+}
+function resumeActive(view,key){
+  const entry=activeTasks[activeKey(view,key)];
+  if(!entry) return;
+  if(entry.kind==='batch'){ resumeBatchEntry(entry); return; }
+  if(!entry.done){
+    setTaskLoading(entry, (TASK_UI[entry.kind].running||'处理中')+'：'+(entry.message||'处理中')+'...');
+    pollTaskEntry(entry);
+    return;
+  }
+  api('/transcript/queryTask?taskId='+encodeURIComponent(entry.taskId)).then(j=>j.data).catch(()=>null).then(d=>{
+    if(d && d.status==='SUCCESS') return showTaskSuccess(entry,d);
+    if(d && d.status==='FAILURE') return showTaskFailure(entry, d.errorMessage||'任务失败');
+    if(d){ entry.done=false; saveActive(); setTaskLoading(entry, (TASK_UI[entry.kind].running||'处理中')+'...'); pollTaskEntry(entry); return; }
+    return api('/history/detail?taskId='+encodeURIComponent(entry.taskId)).then(h=>h.data).then(hd=>{
+      if(hd && hd.status==='SUCCESS') return showTaskSuccess(entry, historyToResult(hd));
+      if(hd) return showTaskFailure(entry, hd.error_msg||'任务失败');
+      showTaskFailure(entry, '任务已不存在');
+    }).catch(()=>showTaskFailure(entry, '任务已不存在'));
+  });
+}
+
+async function videoExtract(){
+  const url=($('#vurl').value||'').trim(); const m=$('#vmsg');
+  if(!url){ m.className='msg error show'; m.textContent='请粘贴视频链接'; return; }
+  clearTaskParam();
+  m.className='msg';
+  setTaskLoading({kind:'video'}, '正在提取...');
+  const vresult=$('#vresult');
+  if(vresult && vresult.dataset.stack === undefined) vresult.innerHTML='';
+  try{
+    const j=await api('/transcript/doTask',{method:'POST',body:JSON.stringify({appType:'douchong',workUrl:url,type:'text',targetLanguage:'auto',whisperModel:$('#vwhisper').value,ocrFrames:!!(document.getElementById('vframes')||{}).checked})});
+    if(j.code!==200||!j.data){ throw new Error(j.msg||'创建失败'); }
+    const entry={taskId:j.data.taskId, view:'video', key:currentKey, kind:'video', done:false, status:'RUNNING', message:'排队中'};
+    registerActive(entry);
+    pollTaskEntry(entry);
+  }catch(e){ clearTaskLoading({kind:'video'}); m.className='msg error show'; m.textContent=e.message; }
+}
+
+async function batchExtract(){
+  const urls=($('#burls').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const m=$('#bmsg');
+  if(!urls.length){ m.className='msg error show'; m.textContent='请至少输入一条链接'; return; }
+  m.className='msg'; $('#bbtn').disabled=true;
+  $('#bresult').innerHTML='';
+  try{
+    const j=await api('/transcript/batch/createTask',{method:'POST',body:JSON.stringify({workUrls:urls,whisperModel:$('#bwhisper').value})});
+    if(j.code!==200||!j.data){ throw new Error(j.msg||'创建失败'); }
+    const bid=j.data.batchId;
+    const entry={taskId:bid, view:'batch', key:'', kind:'batch', done:false, status:'RUNNING', message:'排队中'};
+    registerActive(entry);
+    pollBatchEntry(entry);
+  }catch(e){ $('#bbtn').disabled=false; m.className='msg error show'; m.textContent=e.message; }
+}
+
+function resumeBatchEntry(entry){
+  if(!entry.done){ const btn=document.querySelector('#bbtn'); if(btn) btn.disabled=true; }
+  pollBatchEntry(entry);
+}
+
+function pollBatchEntry(entry){
+  if(taskPollers.has(entry.taskId)) return;
+  taskPollers.add(entry.taskId);
+  const k=activeKey(entry.view,entry.key);
+  const tick=()=>{
+    if(activeTasks[k]?.taskId!==entry.taskId){ taskPollers.delete(entry.taskId); return; }
+    api('/transcript/batch/queryTask?batchId='+encodeURIComponent(entry.taskId)).then(j=>{
+      if(activeTasks[k]?.taskId!==entry.taskId){ taskPollers.delete(entry.taskId); return; }
+      const d=j.data; if(!d) throw new Error('无数据');
+      if(currentView==='batch'){
+        const out=$('#bresult'); if(out) out.innerHTML=renderBatchResult(d.items);
+      }
+      if(d.status!=='SUCCESS'){
+        entry.message='进行中'; saveActive();
+        const btn=document.querySelector('#bbtn'); if(btn && currentView==='batch') btn.disabled=true;
+        setTimeout(tick, 2000);
+      } else {
+        entry.done=true; entry.status='SUCCESS'; saveActive();
+        taskPollers.delete(entry.taskId);
+        if(currentView==='batch'){
+          const m=$('#bmsg'); if(m){ m.className='msg success show'; m.textContent='✓ 批量提取完成，成功 '+d.success+' / 共 '+d.total+' 条'; }
+          const btn=$('#bbtn'); if(btn) btn.disabled=false;
+          removeActive(entry);
+        }
+      }
+    }).catch(e=>{ taskPollers.delete(entry.taskId); if(currentView==='batch'){ const m=$('#bmsg'); if(m){ m.className='msg error show'; m.textContent='轮询出错: '+e.message; } const btn=$('#bbtn'); if(btn) btn.disabled=false; } });
+  };
+  setTimeout(tick, 400);
+}
+
+async function imgFromUrl(){
+  const url=($('#iurl').value||'').trim(); const m=$('#imsg');
+  if(!url){ m.className='msg error show'; m.textContent='请粘贴图片链接'; return; }
+  m.className='msg'; $('#iload').className='loading show'; $('#ibtn').disabled=true;
+  try{
+    const j=await api('/transcript/image/ocr/doTask',{method:'POST',body:JSON.stringify({sourceUrl:url,sourceType:'image'})});
+    $('#iload').className='loading'; $('#ibtn').disabled=false;
+    renderImageResult(j.data?.text||'', $('#iresult'));
+  }catch(e){ $('#iload').className='loading'; $('#ibtn').disabled=false; m.className='msg error show'; m.textContent=e.message; }
+}
+
+async function imgUpload(file){
+  const m=$('#imsg');
+  m.className='msg'; $('#iload').className='loading show';
+  const fd=new FormData(); fd.append('file',file);
+  try{
+    const r=await fetch(API+'/transcript/image/ocr/upload',{method:'POST',body:fd});
+    const j=await r.json(); $('#iload').className='loading';
+    renderImageResult(j.data?.text||'', $('#iresult'));
+  }catch(e){ $('#iload').className='loading'; m.className='msg error show'; m.textContent='上传失败: '+e.message; }
+}
+
+async function fileExtract(){
+  const file=$('#ffile').files[0]; const m=$('#fmsg');
+  if(!file){ m.className='msg error show'; m.textContent='请先选择文件'; return; }
+  clearTaskParam();
+  m.className='msg';
+  setTaskLoading({kind:'file'}, '正在上传与转写...');
+  const fresult=$('#fresult'); fresult.innerHTML='';
+  const fd=new FormData(); fd.append('file',file); fd.append('whisperModel',$('#fwhisper').value); fd.append('ocrFrames', ($('#fframes')||{}).checked?'1':'0');
+  try{
+    const r=await fetch(API+'/file/transcript/doTask',{method:'POST',body:fd});
+    const j=await r.json();
+    if(j.code!==200||!j.data){ throw new Error(j.msg||'上传失败'); }
+    const entry={taskId:j.data.taskId, view:'file', key:currentKey, kind:'file', done:false, status:'RUNNING', message:'排队中'};
+    registerActive(entry);
+    pollTaskEntry(entry);
+  }catch(e){ clearTaskLoading({kind:'file'}); m.className='msg error show'; m.textContent=e.message; }
+}
+
+// ---------- 账号页：平台登录 ----------
+
+window.loadAccounts = async function(){
+  const box = document.getElementById('acctCard');
+  if(!box) return;
+  let j;
+  try{ j = await api('/login/status'); }
+  catch(e){ box.innerHTML='<div class="msg error show">读取账号状态失败：'+escapeHtml(String(e))+'</div>'; return; }
+  const d=(j && j.data)||{};
+  let h='';
+  Object.keys(d).forEach(key=>{
+    const p=d[key]||{}; const rows=p.accounts||[];
+    const others = rows.filter(a=>a.account!=='（默认）').length;
+    h+='<div style="margin-bottom:1.15rem">'
+      +'<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
+      +'<b>'+escapeHtml(p.label||key)+'</b>'
+      +'<span class="muted" style="font-size:.78rem">'
+      +(p.logged_in_count?('已登录 '+p.logged_in_count+' 个'):'未登录')
+      +(p.note?(' · '+escapeHtml(p.note)):'')+'</span>'
+      +'<button class="btn sm ghost" data-login="'+key+'|">登录默认账号</button>'
+      +'<button class="btn sm ghost" data-login="'+key+'|account_'+(others+1)+'">+ 新账号 account_'+(others+1)+'</button>'
+      +'</div>';
+    rows.forEach(a=>{
+      const acct=(a.account==='（默认）')?'':a.account;
+      h+='<div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;font-size:.82rem;padding:.4rem 0;border-top:1px dashed var(--border)">'
+        +'<span style="min-width:7.5rem">'+escapeHtml(a.account)+'</span>'
+        +(a.logging_in? '<span style="color:#b45309">登录中…（请到浏览器窗口完成）</span>'
+          : a.logged_in? '<span style="color:#047857">● 已登录</span><span class="muted">'+escapeHtml(a.logged_at||'')+'（'+a.days_ago+' 天前）</span>'
+          : '<span class="muted">○ 未登录</span>')
+        +(a.cooldown? '<span style="color:#b45309">· 冷却中 '+Math.ceil(a.cooldown/60)+' 分钟</span>':'')
+        +'<span class="muted" style="margin-left:auto">'+escapeHtml(a.profile||'')+'</span>'
+        +'<button class="btn sm ghost" data-login="'+key+'|'+acct+'">'+(a.logged_in?'重新登录':'登录')+'</button>'
+        +(a.logged_in? '<button class="btn sm ghost" data-check="'+key+'|'+acct+'">验证</button>':'')
+        +'</div>';
+    });
+    h+='</div>';
+  });
+  h+='<div style="padding-top:.35rem"><button class="btn sm ghost" id="acctOpenDir">打开 cookies 文件夹</button> '
+    +'<button class="btn sm ghost" id="acctRefresh">刷新状态</button>'
+    +'<span class="muted" style="font-size:.78rem;margin-left:.5rem">登录窗口打开后，这里最多等 5 分钟就会变成"已登录"</span></div>';
+  box.innerHTML=h;
+  box.querySelectorAll('[data-login]').forEach(b=>b.onclick=()=>accountLogin(b.dataset.login));
+  box.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>accountCheck(b.dataset.check));
+  const od=document.getElementById('acctOpenDir'); if(od) od.onclick=accountOpenDir;
+  const rf=document.getElementById('acctRefresh'); if(rf) rf.onclick=()=>window.loadAccounts();
+};
+
+async function accountLogin(spec){
+  const [platform,account]=String(spec).split('|');
+  notify('正在打开登录窗口…');
+  try{
+    const j=await api('/login/start',{method:'POST',body:JSON.stringify({platform:platform,account:account||''})});
+    notify(j.msg||'已打开登录窗口', j.code===200?'success':'error');
+  }catch(e){ notify('启动失败：'+e,'error'); }
+  setTimeout(()=>window.loadAccounts(), 1500);
+  // 登录是人工的，之后每 5 秒看一眼状态，最多看 5 分钟
+  let n=0; const t=setInterval(()=>{ n++; window.loadAccounts(); if(n>=60) clearInterval(t); }, 5000);
+}
+
+async function accountCheck(spec){
+  const [platform,account]=String(spec).split('|');
+  notify('正在验证登录态（不弹窗口，约十几秒）…');
+  try{
+    const j=await api('/login/check',{method:'POST',body:JSON.stringify({platform:platform,account:account||''})});
+    notify(j.msg||'验证完成', j.code===200?'success':'error');
+  }catch(e){ notify('验证失败：'+e,'error'); }
+  window.loadAccounts();
+}
+
+async function accountOpenDir(){
+  try{ const j=await api('/login/open-dir',{method:'POST'}); notify(j.msg||'已打开', j.code===200?'success':'error'); }
+  catch(e){ notify('打开失败：'+e,'error'); }
+}
+
+// ---------- 初始化 ----------
+async function loadRiskStatus(){
+  const el=document.getElementById('riskBanner');
+  if(!el) return;
+  try{
+    const j=await (await fetch(API+'/risk/status')).json();
+    const d=j.data||{};
+    const alerts=j.alerts||[];
+    const items=[]; let anyCool=false;
+    alerts.forEach(a=>{
+      if(!a || !a.message) return;
+      if(a.level==='danger') anyCool=true;
+      items.push((a.level==='info'?'':'⚠ ')+escapeHtml(String(a.message)));
+    });
+    Object.values(d).forEach(x=>{
+      if(!x || !x.enabled) return;
+      const remain=Number(x.cooldownRemaining||0);
+      const pending=Number((x.queue&&x.queue.pending)||0);
+      if(remain>0){
+        anyCool=true;
+        const mins=Math.max(1, Math.ceil(remain/60));
+        const why=x.reason?'（'+escapeHtml(String(x.reason).slice(0,20))+'）':'';
+        items.push(escapeHtml(x.label)+'冷却中，约 '+mins+' 分钟'+why);
+      }else if(pending>0){
+        items.push(escapeHtml(x.label)+'排队 '+pending+' 条');
+      }
+    });
+    if(!items.length){ el.style.display='none'; el.textContent=''; return; }
+    const prefix = alerts.length ? '' : (anyCool?'风控提示：':'队列：');
+    el.textContent=prefix+items.join('；')
+      +(anyCool?'。期间请求会快速失败，建议先提取其他平台。':'。');
+    el.classList.toggle('alert-danger', alerts.some(a=>a&&a.level==='danger'));
+    el.style.display='block';
+  }catch(e){ el.style.display='none'; }
+}
+
+function init(){
+  // 先查 AI 纠错是否可用（决定按钮是否显示）
+  loadAiStatus();
+  loadRiskStatus();
+  setInterval(loadRiskStatus, 30000);
+  buildMenu();
+  // 下拉开关
+  document.getElementById('extractLink').addEventListener('click', e=>{ e.stopPropagation(); document.getElementById('extractPanel').classList.toggle('open'); });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.dropdown')) document.getElementById('extractPanel').classList.remove('open'); });
+  // 画面文字 OCR：按平台自动默认勾选（抖音/快手/小红书没有平台字幕），
+  // 用户手动改过（change）之后就不再自动覆盖他的选择
+  document.addEventListener('change', e=>{
+    if(e.target && e.target.id==='vframes') e.target.dataset.touched='1';
+  });
+  document.addEventListener('input', e=>{
+    if(!e.target || e.target.id!=='vurl') return;
+    const box=document.getElementById('vframes');
+    if(!box || box.dataset.touched) return;
+    const u=(e.target.value||'').toLowerCase();
+    box.checked=/douyin\.com|iesdouyin\.com|kuaishou\.com|gifshow\.com|xiaohongshu\.com|xhslink\.com/.test(u);
+  });
+  // 悬停说明气泡：任何带 data-tip 的元素都能用（说明挂在按钮本身上，不额外加按钮）
+  (function bindTips(){
+    let tip=null;
+    const ensure=()=>{
+      if(tip) return tip;
+      tip=document.createElement('div');
+      tip.style.cssText='position:fixed;z-index:400;max-width:320px;background:#fff;color:#1b1b2f;'
+        +'border:1px solid var(--border);padding:.55rem .72rem;border-radius:10px;font-size:.78rem;'
+        +'line-height:1.6;white-space:pre-line;box-shadow:0 10px 26px rgba(31,27,47,.12);opacity:0;'
+        +'transition:opacity .12s;pointer-events:none;';
+      document.body.appendChild(tip);
+      return tip;
+    };
+    const show=(el)=>{
+      const text=el.dataset.tip||''; if(!text) return;
+      const t=ensure(); t.textContent=text;
+      const r=el.getBoundingClientRect();
+      t.style.left='0px'; t.style.top='0px'; t.style.opacity='1';
+      const w=t.offsetWidth, h=t.offsetHeight;
+      let left=Math.min(Math.max(8, r.right-w), Math.max(8, window.innerWidth-w-8));
+      let top=r.bottom+8;
+      if(top+h > window.innerHeight-8) top=Math.max(8, r.top-8-h);   // 下方放不下就放到上方
+      t.style.left=left+'px'; t.style.top=top+'px';
+    };
+    const hide=()=>{ if(tip) tip.style.opacity='0'; };
+    document.addEventListener('mouseover', e=>{ const el=e.target.closest('[data-tip]'); if(el) show(el); });
+    document.addEventListener('mouseout', e=>{ if(e.target.closest('[data-tip]')) hide(); });
+    document.addEventListener('click', hide, true);
+    window.addEventListener('scroll', hide, true);
+  })();
+  // 「清理已处理原片」按钮：只删 processed/ 里的素材，不动文案与记录
+  document.addEventListener('click', e=>{
+    const b=e.target.closest('[data-clean-processed]'); if(!b) return;
+    e.preventDefault();
+    if(!confirm('确定清理 processed/ 里的原片吗？\n转写出来的文案和历史记录不受影响。')) return;
+    b.disabled=true;
+    fetch(API+'/watch/clean',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+      .then(r=>r.json()).then(j=>{ notify(j.msg||'已清理', j.code===200?'success':'error'); loadWatchStatus(); })
+      .catch(()=>notify('清理失败','error')).finally(()=>{ b.disabled=false; });
+  });
+  // 「打开监听目录」按钮（任务失败提示里按需出现）：图集/图片丢进去 = 自动出一条文案
+  document.addEventListener('click', e=>{
+    const b=e.target.closest('[data-open-watch]'); if(!b) return;
+    e.preventDefault(); b.disabled=true;
+    fetch(API+'/watch/open',{method:'POST'}).then(r=>r.json()).then(j=>{
+      notify(j.msg||'已打开监听目录', j.code===200?'success':'error');
+    }).catch(()=>notify('打开监听目录失败','error')).finally(()=>{ b.disabled=false; });
+  });
+  // 顶部 nav
+  // 顶部 nav：全部新标签打开，当前标签（含进行中任务）保持不变
+  document.querySelectorAll('[data-nav]').forEach(n=>n.addEventListener('click',()=>{
+    if(n.dataset.nav==='home') window.open('#/home','_blank');
+    else if(n.dataset.nav==='history') window.open('#/history','_blank');
+    else if(n.dataset.nav==='accounts') window.open('#/accounts','_blank');
+  }));
+  // 品牌 Logo：也新标签回首页
+  const brand=document.querySelector('.brand');
+  if(brand) brand.addEventListener('click', ()=>window.open('#/home','_blank'));
+  // 下拉项：在新标签页打开对应功能（原标签保持不变，和参考产品一致）
+  document.getElementById('extractPanel').addEventListener('click', e=>{
+    const item=e.target.closest('.dd-item'); if(!item) return;
+    document.getElementById('extractPanel').classList.remove('open');
+    const url=item.dataset.url || urlFor(item.dataset.navTo, item.dataset.key);
+    window.open(url, '_blank');   // 由用户点击触发，不会被弹窗拦截
+  });
+  // 按 URL 打开对应视图（支持"功能在新标签页直达"）
+  const r=routeFromHash();
+  showView(r.view, r.key);
+  if(r.taskId) renderHistoryResult(r.taskId);
+  // 浏览器前进/后退时跟随 URL
+  window.addEventListener('hashchange', ()=>{ const x=routeFromHash(); showView(x.view, x.key); if(x.taskId) renderHistoryResult(x.taskId); });
+}
+
+// ---------- 历史记录 ----------
+window._hPage=1, window._hPageSize=10;
+
+async function loadHistory(){
+  const kw=$('#hKeyword')?.value||'', st=$('#hStatus')?.value||'', pg=window._hPage;
+  const q=new URLSearchParams({page:pg,pageSize:window._hPageSize});
+  if(kw) q.set('keyword',kw);
+  if(st) q.set('status',st);
+  try{
+    const j=await (await fetch(`${API}/history/list?${q}`)).json();
+    if(j.code!==200) throw new Error(j.msg);
+    renderHistoryList(j.data.list||[], j.data.total||0);
+  }catch(e){ const list=$('#hList'); if(list) list.innerHTML='<div class="msg error show">加载失败: '+escapeHtml(e.message)+'</div>'; }
+}
+
+function renderHistoryList(items, total){
+  const list=$('#hList'); if(!list) return;
+  if(!items.length){ list.innerHTML='<div style="text-align:center;color:var(--muted);padding:3rem 0">暂无历史记录</div>'; $('#hPager').innerHTML=''; return; }
+  const hm={'video-transcript':'视频','file_transcript':'文件','image-ocr':'图片','transcript':'视频'};
+  const toolbar='<div class="row" style="margin:0 0 .7rem">'
+    +'<label style="display:flex;align-items:center;gap:.4rem;font-weight:600;font-size:.82rem;cursor:pointer;margin:0">'
+    +'<input type="checkbox" class="h-check" id="hSelectAll"> 全选本页</label>'
+    +'<button type="button" class="btn sm" id="hBatchExport">批量导出</button>'
+    +'<span id="hSelInfo" style="color:var(--muted);font-size:.8rem">已选 0 条</span>'
+    +'</div>';
+  let h=items.map(it=>{
+    const stCls=it.status==='SUCCESS'?'ok':it.status==='FAILURE'?'fail':'run';
+    const stTxt=it.status==='SUCCESS'?'成功':it.status==='FAILURE'?'失败':'进行中';
+    const preview=escapeHtml((it.text_content||'').replace(/\n+/g,' ').slice(0,70));
+    const tgt=historyResultTarget(it);
+    const rurl=resultUrlFor(tgt.view, tgt.key, it.task_id);
+    const id=escapeHtml(it.task_id||'');
+    const type=escapeHtml(hm[it.task_type]||it.task_type||'任务');
+    const title=escapeHtml(it.title||'(无标题)');
+    const platform=escapeHtml(it.platform||'');
+    const time=escapeHtml(it.created_at||'');
+    return '<div class="h-item" data-id="'+id+'" data-url="'+escapeHtml(rurl)+'">'
+      +'<div class="h-left">'
+      +'<input type="checkbox" class="h-check" data-hid="'+id+'">'
+      +'<span class="h-type">'+type+'</span>'
+      +'<div class="h-main"><div class="h-title">'+title+'</div>'
+      +'<div class="h-sub">'+(platform?('['+platform+'] '):'')+preview+'</div>'
+      +'<div class="h-time">'+time+'</div></div>'
+      +'</div>'
+      +'<div class="h-right"><span class="status-tag '+stCls+'">'+stTxt+'</span>'
+      +'<button class="btn sm ghost" data-hact="export">导出</button>'
+      +'<button class="btn sm ghost" data-hact="detail">打开结果</button>'
+      +'<button class="btn sm ghost" data-hact="del">删除</button></div>'
+      +'</div>';
+  }).join('');
+  list.innerHTML=toolbar+'<div class="h-list">'+h+'</div>';
+  // 分页
+  const pages=Math.max(1,Math.ceil(total/window._hPageSize));
+  const pager=$('#hPager'); pager.innerHTML='<span style="color:var(--muted);font-size:.85rem">共 '+total+' 条</span><button class="btn sm ghost" id="hPrevPage">上一页</button>'
+    +'<span style="font-size:.85rem">'+window._hPage+' / '+pages+'</span><button class="btn sm ghost" id="hNextPage">下一页</button>';
+  pagify(pages);
+}
+
+function pagify(pages){
+  const prev=$('#hPrevPage'), next=$('#hNextPage');
+  if(prev) prev.onclick=()=>{ if(window._hPage>1){ window._hPage--; loadHistory(); } };
+  if(next) next.onclick=()=>{ if(window._hPage<pages){ window._hPage++; loadHistory(); } };
+}
+
+function selectedHistoryIds(){
+  return [...document.querySelectorAll('#hList .h-check[data-hid]')].filter(c=>c.checked).map(c=>c.dataset.hid);
+}
+function updateSelCount(){
+  const el=$('#hSelInfo'); if(el) el.textContent='已选 '+selectedHistoryIds().length+' 条';
+  const all=$('#hSelectAll');
+  const boxes=[...document.querySelectorAll('#hList .h-check[data-hid]')];
+  if(all) all.checked = boxes.length>0 && boxes.every(b=>b.checked);
+}
+
+// 历史记录 → 回到该任务对应的完整结果页（导出 / AI 纠错 / 生成笔记 / 视频预览都可用）
+const PLATFORM_VIEW_KEYS = {'抖音':'douyin','小红书':'xhs','快手':'kuaishou','B站':'bilibili','视频号':'qqvideo'};
+
+function historyResultTarget(d){
+  if(d.task_type==='image-ocr'){
+    return {view:'image', key:'ocr', box:'#iresult'};
+  }
+  if(d.task_type==='file_transcript'){
+    const audio=/\.(mp3|wav|m4a|aac|ogg|opus|flac|amr)$/i.test((d.title||'').trim());
+    return {view:'file', key:audio?'audio':'video', box:'#fresult'};
+  }
+  return {view:'video', key:PLATFORM_VIEW_KEYS[d.platform]||'douyin', box:'#vresult'};
+}
+
+function historyToResult(d){
+  let extra={}; try{ extra=JSON.parse(d.extra||'{}'); }catch(e){}
+  return {
+    taskId:d.task_id, platform:d.platform, title:d.title, content:d.content,
+    textContent:d.text_content, cover:d.cover, duration:d.duration,
+    uploader:d.uploader, webpageUrl:d.webpage_url,
+    videoUrlList:(extra.videoUrlList && extra.videoUrlList.length) ? extra.videoUrlList : null,
+    segments:extra.segments || null,
+    frameText:extra.frameText || null,
+  };
+}
+
+async function renderHistoryResult(id){
+  let d;
+  try{
+    const j=await (await fetch(`${API}/history/detail?taskId=${encodeURIComponent(id)}`)).json();
+    d=j.data;
+  }catch(e){ notify('记录加载失败：'+e.message,'error'); return; }
+  if(!d){ notify('记录不存在或已删除','error'); return; }
+  let tgt=historyResultTarget(d);
+  // 视频号页打开监听导入的文件任务：留在视频号页渲染（视频/截图），不去「视频转文字」页
+  if(d.task_type==='file_transcript' && currentView==='video' && currentKey==='qqvideo'){
+    tgt={view:'video', key:'qqvideo', box:'#vresult'};
+  }
+  if(currentView!==tgt.view || currentKey!==tgt.key) showView(tgt.view, tgt.key);
+  const box=document.querySelector(tgt.box);
+  if(!box) return;
+  // 同一任务已经渲染过（含快照恢复）→ 不重复渲染，保留已截好的图
+  if([...box.querySelectorAll('[data-task-id]')].some(el=>el.dataset.taskId===id)){
+    try{ history.replaceState(null,'',resultUrlFor(tgt.view, tgt.key, id)); }catch(e){}
+    return;
+  }
+  if(d.status!=='SUCCESS'){
+    const tid=escapeHtml(id);
+    const platform=escapeHtml(d.platform||'');
+    const title=escapeHtml(d.title||'(无标题)');
+    box.innerHTML='<div class="card" data-task-id="'+tid+'">'
+      +'<div class="meta"><span class="pill platform">'+platform+'</span>'
+      +'<span class="pill status">失败</span></div>'
+      +'<div class="result-title">'+title+'</div>'
+      +'<div class="msg error show">'+escapeHtml(d.error_msg||'任务失败')+'</div></div>';
+  }else if(tgt.view==='image'){
+    renderImageResult(d.text_content||'', box, id);
+  }else{
+    renderVideoResult(historyToResult(d), box);
+  }
+  snapshotResult();
+  try{ history.replaceState(null,'',resultUrlFor(tgt.view, tgt.key, id)); }catch(e){}
+  box.scrollIntoView({behavior:'smooth'});
+}
+
+// ---------- 导出下载（对齐抖虫：4 种格式 + 单条/批量） ----------
+// ---------- AI 语境纠错 ----------
+let _corrCache = {};
+
+// ---------- 外部下载器（wx_channels_download） ----------
+async function loadExtDlStatus(){
+  const el = document.getElementById('extDlStatus');
+  if(!el) return;
+  const actions = document.getElementById('extDlActions');
+  try{
+    const j = await (await fetch(API + '/ext/status')).json();
+    const d = j.data || {};
+    if(d.online){
+      const ps = (d.platforms || []).filter(p => p.available).map(p => p.name).join('/');
+      const proxyTxt = d.proxy_listening === true
+        ? ' · 代理已启动'
+        : (d.proxy_listening === false ? ' · <span style="color:#d97706">代理未启动</span>（注入按钮/视频号下载不可用）' : '');
+      const certBad = d.cert_installed === false;
+      const certTxt = certBad
+        ? ' · <span style="color:#d97706">MITM 证书未安装</span>（视频号下载不可用，点右侧修复）'
+        : '';
+      const px = d.system_proxy || {};
+      const proxyNote = px.is_mitm
+        ? ' · 系统代理 → 本机 ' + escapeHtml(String(px.server || ('127.0.0.1:' + (px.mitm_port || 2023)))) + '（点「停止下载器」会自动还原）'
+        : (d.proxy_listening ? ' · <span style="color:#d97706">系统代理未指向本机</span>（微信里的下载按钮不会注入）' : '');
+      el.innerHTML = '<span style="color:#059669">● 在线</span>'
+        + (d.version ? ' · v' + escapeHtml(d.version) : '')
+        + ' · 下载目录：' + escapeHtml(d.download_dir || '(未从配置读取到)')
+        + proxyTxt + certTxt + proxyNote
+        + (ps ? ' · 可用平台：' + escapeHtml(ps) : '');
+      el.style.color = '';
+      if(actions) actions.innerHTML =
+        (certBad ? '<button type="button" class="btn sm" id="extDlFixBtn">修复证书（管理员）</button>' : '')
+        + '<button type="button" class="btn sm ghost" id="extDlStopBtn">停止下载器</button>';
+      const sb = document.getElementById('extDlStopBtn');
+      if(sb) sb.addEventListener('click', extDlStop);
+      const fb = document.getElementById('extDlFixBtn');
+      if(fb) fb.addEventListener('click', extDlFixCert);
+    }else{
+      const installed = d.installed === true;
+      const px = d.system_proxy || {};
+      const staleProxy = (px.enable === 1 || px.enable === true) && px.is_mitm === true;
+      el.innerHTML = '<span style="color:#dc2626">● 离线</span>'
+        + (installed ? '（已安装，未运行）' : '（未安装）')
+        + ' · 下载目录：' + escapeHtml(d.download_dir || '')
+        + (staleProxy
+            ? ' · <span style="color:#dc2626">系统代理还指向本机 127.0.0.1:'
+              + escapeHtml(String(px.mitm_port || 2023)) + '，会导致全机断网</span>'
+            : '');
+      el.style.color = '';
+      if(actions) actions.innerHTML =
+        '<button type="button" class="btn sm" id="extDlSetupBtn">'
+        + (installed ? '启动下载器（弹管理员确认）' : '一键安装并启动')
+        + '</button>'
+        + (staleProxy ? '<button type="button" class="btn sm ghost" id="extDlProxyBtn">还原系统代理</button>' : '')
+        + '<span style="color:var(--muted);font-size:.76rem">'
+        + (installed ? '' : '优先用 wx_dl_pkg/ 里的本地安装包，没有则自动从 GitHub 下载')
+        + '</span>';
+      const sb = document.getElementById('extDlSetupBtn');
+      if(sb) sb.addEventListener('click', extDlSetupStart);
+      const pb = document.getElementById('extDlProxyBtn');
+      if(pb) pb.addEventListener('click', extDlRestoreProxy);
+    }
+  }catch(e){ el.textContent = '状态检测失败：' + e.message; }
+}
+
+function extErrorHint(error){
+  const e=String(error||'').toLowerCase();
+  if(e.includes('unique id')) return '下载器 v260907 已知直链缺陷；视频号请用微信页面注入的下载按钮。';
+  if(e.includes('socket')) return '请保持微信视频号页面打开并播放，再点下载按钮。';
+  if(e.includes('cert') || e.includes('证书') || e.includes('proxy') || e.includes('代理')) return '请在下载器卡片点「修复证书」，或确认下载器以管理员运行。';
+  if(e.includes('timeout')) return '下载超时；保持视频号页面打开后重试。';
+  return '检查下载器状态/证书/微信页面后重试。';
+}
+
+async function loadExtTasks(){
+  const el=document.getElementById('extDlTaskList');
+  if(!el) return;
+  try{
+    const j=await (await fetch(API+'/ext/tasks?limit=6')).json();
+    const d=j.data||{};
+    if(d.online===false){
+      el.innerHTML='<span style="color:#dc2626">下载器未运行</span>'
+        +(d.error ? ' · '+escapeHtml(d.error) : '');
+      return;
+    }
+    const items=d.items||[];
+    if(!items.length){ el.textContent='暂无视频号下载任务（在微信里点下载后出现）'; return; }
+    const running=items.filter(t=>[1,2,4].includes(t.status)).length;
+    const warn=running>1
+      ? '<div style="font-size:.72rem;color:#d97706;line-height:1.45;margin-bottom:.3rem">当前有 '+running+' 个下载任务，建议一次只处理一个，避免 socket/风控冲突。</div>'
+      : '';
+    el.innerHTML=warn+items.map(t=>{
+      const failed=t.status===6 || t.status===7;
+      const cls=failed?'fail':t.status===5?'ok':'run';
+      const size=Number(t.size)||0;
+      const sizeTxt=size>=1048576?(size/1048576).toFixed(1)+'MB':(size?Math.max(1,Math.round(size/1024))+'KB':'');
+      const hint=failed?extErrorHint(t.error):'';
+      return '<div class="row" style="align-items:center;gap:.4rem;margin:.3rem 0">'
+        +'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escapeHtml(t.name||'')+'">'+escapeHtml(t.name||'')+'</span>'
+        +'<span class="status-tag '+cls+'">'+escapeHtml(t.statusText||'未知')+'</span>'
+        +'<span style="font-size:.68rem;color:var(--muted);flex:0 0 auto">'+escapeHtml(t.createdAt||'')+'</span>'
+        +'</div>'
+        +(t.status===2 || t.status===4
+          ? '<div style="font-size:.68rem;color:var(--muted);margin:-.1rem 0 .3rem">进度 '+Math.max(0,Math.min(100,Number(t.progress)||0))+'%'+(sizeTxt?' · '+sizeTxt:'')+'</div>'
+          : '')
+        +(failed
+          ? '<div style="font-size:.72rem;color:#b91c1c;line-height:1.45;margin:-.1rem 0 .4rem">'
+            + escapeHtml(String(t.error||'下载失败').slice(0,300))
+            +(hint?'<br>'+escapeHtml(hint):'')+'</div>'
+          : '');
+    }).join('');
+  }catch(e){ el.textContent='任务状态读取失败：'+escapeHtml(e.message); }
+}
+
+async function extDlSetupStart(){
+  const box = document.getElementById('extDlActions');
+  const btn = document.getElementById('extDlSetupBtn');
+  const step = (t) => { if(btn){ btn.disabled = true; btn.textContent = t; } };
+  try{
+    const st = await (await fetch(API + '/ext/status')).json();
+    if(!(st.data || {}).installed){
+      step('安装中…（首次需下载约 37MB）');
+      const sj = await (await fetch(API + '/ext/setup', {method:'POST'})).json();
+      if(sj.code !== 200){ notify(sj.msg || '安装失败', 'error'); loadExtDlStatus(); return; }
+    }
+    step('启动中…（请在弹出的管理员确认框点「是」）');
+    const rj = await (await fetch(API + '/ext/start', {method:'POST'})).json();
+    if(rj.code === 200){
+      notify('下载器已启动：微信打开视频号播放，点注入的「下载」按钮即可', 'success');
+      // 顺手把监听接线到下载器的下载目录（未启用时），落地即自动转写
+      try{
+        const wj = await (await fetch(API + '/watch/status')).json();
+        if(!(wj.data || {}).enabled){
+          const sj = await (await fetch(API + '/ext/status')).json();
+          const dd = (sj.data || {}).download_dir || '';
+          if(dd) await fetch(API + '/watch/start', {method:'POST',
+            headers:{'Content-Type':'application/json'}, body: JSON.stringify({dir: dd})});
+        }
+      }catch(e){}
+    }else{
+      const hint = (rj.data || {}).hint || '';
+      notify((rj.msg || '启动失败') + (hint ? '：' + hint : ''), 'error');
+    }
+  }catch(e){ notify('请求失败：' + e.message, 'error'); }
+  finally{ loadExtDlStatus(); loadExtTasks(); }
+}
+
+async function extDlStop(){
+  if(!confirm('停止 wx_channels_download？（微信里注入的下载按钮会随之失效）')) return;
+  try{
+    const j = await (await fetch(API + '/ext/stop', {method:'POST'})).json();
+    notify(j.code === 200 ? '下载器已停止' : (j.msg || '停止失败'), j.code === 200 ? 'success' : 'error');
+  }catch(e){ notify('请求失败：' + e.message, 'error'); }
+  finally{ loadExtDlStatus(); loadExtTasks(); }
+}
+
+async function extDlRestoreProxy(){
+  if(!confirm('把系统代理还原/关闭？（一般在下载器离线但代理仍指向它时才需要，会导致全机断网）')) return;
+  try{
+    const j = await (await fetch(API + '/ext/proxy/restore', {method:'POST'})).json();
+    notify((j.data && j.data.detail) || '已处理', 'success');
+  }catch(e){ notify('请求失败：' + e.message, 'error'); }
+  finally{ loadExtDlStatus(); }
+}
+
+// ---------- 刷新直链（抖音/快手直链几小时过期） ----------
+async function refreshMedia(taskId, btn){
+  if(!taskId) return;
+  const old = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '刷新中…'; }
+  try{
+    const j = await (await fetch(API + '/transcript/refreshMedia', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({taskId})})).json();
+    if(j.code !== 200){ notify(j.msg || '刷新失败', 'error'); return; }
+    notify(j.msg || '已刷新直链', 'success');
+    // 让 <video> 拿到新流（同 URL 可能被浏览器缓存住旧的分片）
+    window.MEDIA_TICK = Date.now();
+    // 强制重渲染这张结果卡（renderHistoryResult 对已渲染任务会跳过，先移除旧卡）
+    const card = btn && btn.closest('[data-task-id]');
+    const host = card && card.parentElement;
+    if(card) card.remove();
+    if(host) await renderHistoryResult(taskId);
+  }catch(e){ notify('刷新失败：' + e.message, 'error'); }
+  finally{ if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = old || '刷新直链'; } }
+}
+
+async function extDlFixCert(){
+  // 修复方式：停止当前（免提权）实例 → 以管理员重启 → 下载器自行安装 MITM 证书
+  notify('正在重启下载器以安装证书，请在弹出的管理员确认框点「是」');
+  try{
+    await fetch(API + '/ext/stop', {method:'POST'});
+    const j = await (await fetch(API + '/ext/start', {method:'POST'})).json();
+    notify(j.code === 200 ? '下载器已重启，证书应已安装' : (j.msg || '修复失败'), j.code === 200 ? 'success' : 'error');
+  }catch(e){ notify('请求失败：' + e.message, 'error'); }
+  finally{ loadExtDlStatus(); loadExtTasks(); }
+}
+
+async function extDlDownload(){
+  const url = (document.getElementById('extDlUrl')?.value || '').trim();
+  if(!url){ notify('请先粘贴链接', 'error'); return; }
+  const btn = document.getElementById('extDlGo');
+  if(btn){ btn.disabled = true; btn.textContent = '提交中…'; }
+  try{
+    const j = await (await fetch(API + '/ext/download', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({url: url, whisperModel: (document.getElementById('vwhisper')?.value || 'medium')})
+    })).json();
+    if(j.code !== 200){ notify(j.msg || '直链下载失败', 'error'); }
+    else{
+      notify('已开始直链下载；完成后自动转写（失败见 app.log）');
+      const dir = (j.data || {}).downloadDir || '';
+      const wd = document.getElementById('watchDir');
+      if(dir && wd) wd.value = dir;
+      loadWatchStatus();
+      if(window.showView) setTimeout(()=>loadExtDlStatus(), 1200);
+    }
+  }catch(e){ notify('请求失败：' + e.message, 'error'); }
+  finally{ if(btn){ btn.disabled = false; btn.textContent = '提交直链下载'; } }
+}
+
+// ---------- 视频号：开始提取 → 盯监听 → 结果渲染在本页 ----------
+let qqTimer=null;
+async function qqStartExtract(){
+  const btn=document.getElementById('qqStart');
+  try{
+    if(btn){ btn.disabled=true; btn.textContent='就绪中…'; }
+    const st=await (await fetch(API+'/watch/status')).json();
+    if(!((st.data||{}).enabled)){
+      const j=await (await fetch(API+'/watch/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+      if(j.code!==200){ notify(j.msg||'开启监听失败','error'); if(btn){btn.disabled=false;btn.textContent='开始提取';} return; }
+      loadWatchStatus(); loadExtDlStatus();
+    }
+    window._qqvWaiting=true;
+    if(btn){ btn.textContent='等待视频落地…（去微信点「下载」）'; }
+    const m=document.getElementById('vmsg');
+    if(m){ m.className='msg show'; m.textContent='就绪：在微信里点「下载」后，视频会自动转写并显示在本页'; }
+    qqWatchLoop();
+  }catch(e){ notify('操作失败：'+e.message,'error'); if(btn){btn.disabled=false;btn.textContent='开始提取';} }
+}
+
+function qqWatchLoop(){
+  if(qqTimer) clearInterval(qqTimer);
+  qqTimer=setInterval(async ()=>{
+    // 离开本页（元素被重建/移除）就停表，重新进入时 bindViewEvents 会再拉起
+    if(!document.getElementById('qqStart')){ clearInterval(qqTimer); return; }
+    window._qqExtTaskTick=(window._qqExtTaskTick||0)+1;
+    if(window._qqExtTaskTick % 3 === 0) loadExtTasks();
+    try{
+      const entry=(typeof activeTasks!=='undefined')?activeTasks['video|qqvideo']:null;
+      // 任务完成后：刷新文案列表、恢复按钮、提示一次
+      if(entry && entry.done && window._qqvHandled!==entry.taskId){
+        window._qqvHandled=entry.taskId;
+        window._qqvWaiting=false; window._qqvRunning=false;
+        loadWatchStatus(); loadLocalVideos();
+        const b=document.getElementById('qqStart');
+        if(b){ b.disabled=false; b.textContent='开始提取'; }
+        notify(entry.status==='SUCCESS'?'✓ 提取成功，结果已显示在本页':'提取失败：'+(entry.message||''), entry.status==='SUCCESS'?'success':'error');
+        return;
+      }
+      // 成功/失败后 entry 会被移除：靠 _qqvRunning 标志补一次按钮复位
+      if(!entry && window._qqvRunning){
+        window._qqvRunning=false; window._qqvWaiting=false;
+        loadWatchStatus(); loadLocalVideos();
+        const b=document.getElementById('qqStart');
+        if(b){ b.disabled=false; b.textContent='开始提取'; }
+        return;
+      }
+      if(entry && !entry.done) return;            // 转写进行中，交给 pollTaskEntry
+      const j=await (await fetch(API+'/watch/status')).json();
+      const top=(((j.data||{}).recent)||[])[0];
+      if(!top || !top.taskId) return;
+      if(window._qqvLastSeen===undefined){
+        window._qqvLastSeen=top.taskId;
+        // 页面还没有结果时，自动接管监听目录最近的一条（刷新/重进也能看到视频与截图）
+        if(document.querySelector('#vresult > .card')) return;
+      }else if(top.taskId===window._qqvLastSeen || top.taskId===window._qqvHandled){
+        return;
+      }
+      // 发现新落地视频 → 复用通用任务机制（进度条 + 结果渲染 + 刷新可续）
+      window._qqvLastSeen=top.taskId;
+      const b=document.getElementById('qqStart');
+      if(b){ b.textContent='发现新视频，转写中…'; }
+      registerActive({taskId:top.taskId, view:'video', key:'qqvideo', kind:'video', done:false, status:'RUNNING', message:'排队中'});
+      window._qqvRunning=true;
+      pollTaskEntry(activeTasks['video|qqvideo']);
+    }catch(e){}
+  }, 4000);
+}
+
+// ---------- 最近导入的本地视频 / 文件（历史记录，持久显示） ----------
+async function loadLocalVideos(){
+  const el = document.getElementById('localVideoList');
+  if(!el) return;
+  try{
+    const j = await (await fetch(API + '/history/list?page=1&pageSize=30')).json();
+    const items = (((j.data||{}).list)||[]).filter(it => it.task_type==='file_transcript').slice(0,6);
+    if(!items.length){ el.textContent = '还没有导入的本地视频/文件（监听目录导入后会自动出现在这里）'; return; }
+    el.innerHTML = items.map(it=>{
+      const title = it.title || '(无标题)';
+      const audio = /\.(mp3|wav|m4a|aac|ogg|opus|flac|amr)$/i.test(title);
+      const url = '#/video/qqvideo?task=' + encodeURIComponent(it.task_id);
+      const st = it.status==='SUCCESS'?'成功':it.status==='FAILURE'?'失败':'进行中';
+      const cls = it.status==='SUCCESS'?'ok':it.status==='FAILURE'?'fail':'run';
+      return '<div class="row" style="align-items:center;gap:.5rem;margin:.35rem 0">'
+        + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escapeHtml(title)+'">'+(audio?'🎧':'🎬')+' '+escapeHtml(title)+'</span>'
+        + '<span class="status-tag '+cls+'">'+st+'</span>'
+        + '<span style="font-size:.72rem;color:var(--muted)">'+escapeHtml((it.created_at||'').slice(5,16))+'</span>'
+        + '<a class="btn sm ghost" style="text-decoration:none" href="'+url+'" target="_blank" rel="noopener">打开结果</a>'
+        + '</div>';
+    }).join('');
+  }catch(e){ el.textContent = '加载失败：' + e.message; }
+}
+
+async function archOpenFolder(){
+  try{ await fetch(API + '/archive/open', {method:'POST'}); notify('已在资源管理器打开 文案输出 文件夹', 'success'); }
+  catch(e){ notify('打开失败：' + e.message, 'error'); }
+}
+
+// ---------- 监听文件夹（视频号抓包导出自动转写） ----------
+function watchRecentHtml(recent, label){
+  const items=(recent||[]).slice(0,5);
+  if(!items.length) return '';
+  const rows=items.map(r=>{
+    const file=escapeHtml(r.file||'');
+    if(!r.taskId) return '<div>'+file+'</div>';
+    const url = '#/video/qqvideo?task=' + encodeURIComponent(r.taskId);
+    return '<div><a href="'+url+'" target="_blank" rel="noopener" style="color:#6d28d9;text-decoration:none">'+file+'</a>'
+      + '<span style="color:#9ca3af;font-size:.74rem"> · '+escapeHtml(r.at||'')+'</span></div>';
+  }).join('');
+  return '<div style="margin-top:.35rem;color:var(--muted)">'+(label||'最近导入（点击打开结果）：')+'</div>'+rows;
+}
+function watchFailedHtml(failed){
+  if(!failed || !failed.length) return '';
+  const rows = failed.slice(0,3).map(f=>
+    '<div>⚠ ' + escapeHtml(String(f.file||'')) + '：' + escapeHtml(String(f.error||'').slice(0,70)) + '</div>'
+  ).join('');
+  return '<div style="margin-top:.35rem;color:#b45309">导入失败（下轮会自动重试）：</div>' + rows;
+}
+function watchUsageHtml(u){
+  if(!u || !u.dir) return '';
+  const mb = (b)=> (Number(b||0)/1048576).toFixed(1)+' MB';
+  let h = '<div style="margin-top:.35rem;color:var(--muted)">目录占用：待处理 '
+        + (u.inboxFiles||0) + ' 个 / ' + mb(u.inboxBytes)
+        + '，已处理 ' + (u.processedFiles||0) + ' 个 / ' + mb(u.processedBytes) + '</div>';
+  if(Number(u.processedBytes||0) > 0){
+    h += '<div style="margin-top:.35rem"><button type="button" class="btn sm ghost" data-clean-processed>清理已处理原片</button>'
+      +  '<span style="color:var(--muted);font-size:.74rem;margin-left:.4rem">只删 processed/ 里的原片，文案与历史记录不受影响</span></div>';
+  }
+  return h;
+}
+async function loadWatchStatus(){
+  const box = document.getElementById('watchStatus');
+  if(!box) return;
+  try{
+    const j = await (await fetch(API + '/watch/status')).json();
+    const d = j.data || {};
+    if(d.enabled){
+      const wd = document.getElementById('watchDir');
+      if(wd && !wd.value) wd.value = d.dir || '';
+      box.innerHTML = '● 正在监听：<code>' + escapeHtml(d.dir) + '</code>'
+        + '（每 ' + (d.interval || 5) + ' 秒扫描，已导入 ' + (d.processed || 0) + ' 个）'
+        + watchUsageHtml(d.usage)
+        + watchFailedHtml(d.failed)
+        + watchRecentHtml(d.recent);
+      box.style.color = '#059669';
+    }else{
+      // 未启用 → 输入框预填下载器的下载目录，点「开始监听」即可（留空也会自动用它）
+      fetch(API + '/ext/status').then(r=>r.json()).then(s=>{
+        const dd = (s.data||{}).download_dir || '';
+        const wd = document.getElementById('watchDir');
+        if(dd && wd && !wd.value) wd.value = dd;
+      }).catch(()=>{});
+      box.innerHTML = '未启用。输入框已预填下载器的下载目录，点「开始监听」即可（留空提交也行）。'
+        + watchRecentHtml(d.recent, '上次导入（点击打开结果）：');
+      box.style.color = '';
+    }
+  }catch(e){ box.textContent = '状态获取失败'; }
+}
+
+async function startWatch(){
+  const dir = ((document.getElementById('watchDir') || {}).value || '').trim();
+  // 留空 = 自动使用下载器的下载目录（后端 /watch/start 已支持）
+  try{
+    const r = await fetch(API + '/watch/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dir: dir, model:'medium', interval:5, moveDone:true})
+    });
+    const j = await r.json();
+    if(!r.ok){ notify(j.msg || '启动失败', 'error'); return; }
+    notify('已开始监听');
+    loadWatchStatus();
+  }catch(e){ notify('启动失败：' + e.message, 'error'); }
+}
+
+async function stopWatch(){
+  try{
+    await fetch(API + '/watch/stop', {method:'POST'});
+    notify('已停止监听');
+    loadWatchStatus();
+  }catch(e){ notify('停止失败', 'error'); }
+}
+
+async function loadAiStatus(){
+  try{
+    const j = await (await fetch(API + '/ai/status')).json();
+    window.AI_ENABLED = !!(j.data && j.data.enabled);
+    window.AI_MODEL = (j.data && j.data.model) || '';
+  }catch(e){ window.AI_ENABLED = false; }
+}
+
+async function runAiCorrect(taskId){
+  const box = document.getElementById('aiBox-' + taskId);
+  if(!box) return;
+  box.innerHTML = '<div class="loading show"><div class="spinner"></div>'
+    + '<span>AI 正在通读全文纠错（约 30-60 秒）...</span></div>';
+  try{
+    const r = await fetch(API + '/ai/correct', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({taskId})
+    });
+    const j = await r.json();
+    if(!r.ok || !j.data || !j.data.ok){
+      const m = j.msg || '纠错失败';
+      box.innerHTML = '<div class="msg error show">' + escapeHtml(m) + '</div>';
+      notify(m, 'error');          // 模型不可用等错误直接弹出来，不用去翻结果区
+      return;
+    }
+    _corrCache[taskId] = { original: null, corrected: j.data.corrected,
+                           changes: j.data.changes || [],
+                           punct: j.data.punctuationCount || 0, model: j.data.model };
+    renderCorrection(taskId, 'corrected');
+  }catch(e){
+    box.innerHTML = '<div class="msg error show">纠错请求失败：' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderCorrection(taskId, mode){
+  const box = document.getElementById('aiBox-' + taskId);
+  const c = _corrCache[taskId];
+  if(!box || !c) return;
+  // 原文从页面现有文本块取
+  if(c.original === null){
+    const el = document.querySelector('[data-copy-src="txt"]');
+    c.original = el ? el.textContent : '';
+  }
+  const body = mode === 'original' ? c.original : c.corrected;
+  const changes = c.changes.map(x => '<li><code>' + escapeHtml(x.from) + '</code> → <code>'
+      + escapeHtml(x.to) + '</code></li>').join('');
+  box.innerHTML = '<div class="card" style="margin-top:1rem;border-color:#ddd6fe">'
+    + '<div class="meta"><span class="pill platform">AI 纠错 · ' + escapeHtml(c.model || 'LLM') + '</span>'
+    + '<span class="pill dur">实质修改 ' + c.changes.length + ' 处</span>'
+    + (c.punct ? '<span class="pill status">标点规范化 ' + c.punct + ' 处</span>' : '')
+    + '<button class="copy" onclick="switchCorr(\'' + taskId + '\',\'original\')">看原文</button>'
+    + '<button class="copy" onclick="switchCorr(\'' + taskId + '\',\'corrected\')">看纠错版</button>'
+    + '<button class="copy" onclick="exportCorrected(\'' + taskId + '\')">导出纠错版</button>'
+    + '</div>'
+    + '<div class="section-label">' + (mode === 'original' ? '原文（ASR 结果）' : '纠错版') + '</div>'
+    + '<div class="transcript" style="max-height:340px">' + escapeHtml(body) + '</div>'
+    + (c.changes.length ? '<div class="section-label">改动清单</div><ul class="corr-list">' + changes + '</ul>' : '')
+    + '</div>';
+}
+
+function switchCorr(taskId, mode){ renderCorrection(taskId, mode); }
+function exportCorrected(taskId){ openExportModal([taskId], true); }
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, m => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// 点击 AI 纠错（全局委托，只绑一次）
+if(!window.__aiBound){
+  window.__aiBound = true;
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-ai-correct]');
+    if(b){ const id = b.dataset.aiCorrect; if(id) runAiCorrect(id); return; }
+    const n = e.target.closest('[data-ai-note]');
+    if(n){ const nid = n.dataset.aiNote; if(nid) runAiNote(nid); }
+  });
+}
+
+// ---------- 结构化笔记（map-reduce） ----------
+async function runAiNote(taskId){
+  const box = document.getElementById('noteBox-' + taskId);
+  if(!box) return;
+  box.innerHTML = '<div class="loading show"><div class="spinner"></div>'
+    + '<span>正在生成结构化笔记（分块提取 + 汇总，约 1-2 分钟）...</span></div>';
+  try{
+    const r = await fetch(API + '/ai/note', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({taskId})
+    });
+    const j = await r.json();
+    if(!r.ok || !j.data){
+      const m = j.msg || '生成失败';
+      box.innerHTML = '<div class="msg error show">' + escapeHtml(m) + '</div>';
+      notify(m, 'error');
+      return;
+    }
+    const d = j.data;
+    box.innerHTML = '<div class="card" style="margin-top:1rem;border-color:#ddd6fe">'
+      + '<div class="meta"><span class="pill platform">结构化笔记 · ' + escapeHtml(d.model || '') + '</span>'
+      + '<span class="pill dur">要点 ' + (d.keyPoints || 0) + ' · 金句 ' + (d.quotes || 0)
+      + ' · 术语 ' + (d.terms || 0) + '</span>'
+      + '<a class="copy" style="text-decoration:none" href="' + API + '/ai/note/download?taskId='
+      + encodeURIComponent(taskId) + '">下载 .md</a></div>'
+      + '<div class="section-label">笔记预览</div>'
+      + '<pre class="note-preview">' + escapeHtml(d.markdown || '') + '</pre>'
+      + '</div>';
+  }catch(e){
+    box.innerHTML = '<div class="msg error show">生成请求失败：' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// ---------- 导出下载（对齐抖虫：4 种格式 + 单条/批量） ----------
+const EXPORT_FORMATS=[
+  {value:'txt',      label:'纯文本',    desc:'.txt 通用文本文件'},
+  {value:'markdown', label:'Markdown',  desc:'.md 保留标题结构'},
+  {value:'docx',     label:'Word 文档', desc:'.docx 办公编辑排版'},
+  {value:'excel',    label:'Excel 表格',desc:'.xlsx 表格化管理'},
+  {value:'srt',      label:'SRT 字幕',  desc:'.srt 带时间戳字幕'},
+];
+let _expSel='txt', _expIds=[], _expCorrected=false;
+
+function notify(text,type){
+  let el=document.getElementById('globalToast');
+  if(!el){ el=document.createElement('div'); el.id='globalToast';
+    el.style.cssText='position:fixed;top:72px;left:50%;transform:translateX(-50%);z-index:300;padding:.6rem 1.15rem;border-radius:999px;font-size:.85rem;font-weight:600;box-shadow:0 10px 26px rgba(0,0,0,.16);transition:opacity .25s;';
+    document.body.appendChild(el); }
+  el.textContent=text;
+  const bad=type==='error';
+  el.style.background=bad?'#fef2f2':'#ecfdf5'; el.style.color=bad?'#b91c1c':'#065f46';
+  el.style.border='1px solid '+(bad?'#fecaca':'#a7f3d0'); el.style.opacity='1';
+  clearTimeout(window.__toastT); window.__toastT=setTimeout(()=>{el.style.opacity='0';},2200);
+}
+
+function openExportModal(ids, corrected=false){
+  _expIds=(ids||[]).filter(Boolean);
+  _expCorrected=!!corrected;
+  if(!_expIds.length){ notify('暂无可导出的任务','error'); return; }
+  if(_expIds.length>100){ notify('单次最多导出 100 个任务','error'); return; }
+  _expSel='txt';
+  closeExportModal();
+  const mask=document.createElement('div');
+  mask.id='exportMask'; mask.className='modal-mask';
+  mask.innerHTML='<div class="modal">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between">'
+    +'<h3>选择导出格式</h3><button type="button" class="btn sm ghost" id="expClose">✕</button></div>'
+    +'<div style="margin-top:.35rem;font-size:.78rem;color:#6b7280">共 '+_expIds.length+' 个任务'
+    +(_expIds.length>1?' · 打包为 ZIP，每条记录一个文件':'')
+    +(_expCorrected?' · <b style="color:#7c3aed">AI 纠错版</b>':'')+'</div>'
+    +'<div class="fmt-grid" id="fmtGrid">'+EXPORT_FORMATS.map(f=>'<button type="button" class="fmt-card'+(f.value===_expSel?' sel':'')+'" data-fmt="'+f.value+'"><b>'+f.label+'</b><span>'+f.desc+'</span></button>').join('')+'</div>'
+    +'<label style="display:flex;align-items:flex-start;gap:.45rem;margin-top:.7rem;font-size:.8rem;color:#374151;line-height:1.5;cursor:pointer">'
+    +'<input type="checkbox" id="expPlain" style="margin-top:.15rem">'
+    +'<span><b>仅文案</b> —— 每个文件只含转写正文，不含标题/简介/链接等元数据（文件名仍带标题；对 Excel/SRT 无效）</span></label>'
+    +'<div class="modal-foot"><button type="button" class="btn sm ghost" id="expCancel">取消</button>'
+    +'<button type="button" class="btn sm" id="expConfirm">导出</button></div></div>';
+  document.body.appendChild(mask);
+  mask.addEventListener('click', e=>{ if(e.target===mask) closeExportModal(); });
+  document.getElementById('fmtGrid').addEventListener('click', e=>{
+    const c=e.target.closest('[data-fmt]'); if(!c) return;
+    _expSel=c.dataset.fmt;
+    mask.querySelectorAll('.fmt-card').forEach(x=>x.classList.toggle('sel', x.dataset.fmt===_expSel));
+    const cb=document.getElementById('expPlain');
+    if(cb && (_expSel==='srt'||_expSel==='excel')){ cb.checked=false; cb.disabled=true; }
+    else if(cb){ cb.disabled=false; }
+  });
+  document.getElementById('expCancel').onclick=closeExportModal;
+  document.getElementById('expClose').onclick=closeExportModal;
+  document.getElementById('expConfirm').onclick=runExport;
+}
+
+function closeExportModal(){ const m=document.getElementById('exportMask'); if(m) m.remove(); }
+
+async function runExport(){
+  const btn=document.getElementById('expConfirm');
+  if(btn){ btn.disabled=true; btn.textContent='导出中...'; }
+  try{
+    const plain=(document.getElementById('expPlain')||{}).checked?1:0;
+    let resp;
+    if(_expIds.length===1){
+      resp=await fetch(`${API}/ai-face/exportTask?taskId=${encodeURIComponent(_expIds[0])}&format=${_expSel}&lang=zh`
+        +(_expCorrected?'&corrected=1':'')+'&plain='+plain);
+    }else{
+      resp=await fetch(`${API}/ai-face/exportTasks`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({taskIds:_expIds,format:_expSel,lang:'zh',corrected:_expCorrected?1:0,plain:plain})});
+    }
+    const ct=resp.headers.get('content-type')||'';
+    if(!resp.ok || ct.includes('json')){
+      let msg='导出失败，请稍后重试';
+      try{ const j=await resp.json(); if(j&&j.msg) msg=j.msg; }catch(e){}
+      notify(msg,'error'); return;
+    }
+    const blob=await resp.blob();
+    let name = _expIds.length>1
+      ? 'transcripts_'+_expIds.length+'.zip'
+      : 'transcript.'+(_expSel==='markdown'?'md':_expSel==='excel'?'xlsx':_expSel);
+    const cd=resp.headers.get('content-disposition')||'';
+    const m=cd.match(/filename="?([^";]+)"?/i); if(m) name=m[1].trim();
+    const url=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    closeExportModal();
+    notify(_expIds.length>1 ? '已导出 '+_expIds.length+' 个文件（ZIP）' : '导出成功');
+  }catch(e){ notify('导出失败: '+e.message,'error'); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='导出'; } }
+}
+
+function quickDemo(){
+  window.open(urlFor('video_text','douyin'), '_blank');
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# 凭据与运行产物
+.env
+cookies/*.txt
+cookies/_browser_profile*/
+cookies/**/account_*.txt
+cookies/.cooldown.json
+cookies/.budget.json
+cookies/.accounts.json
+transcript_history.db
+queue_state.json
+watchdog.log
+tasks/
+tmp_uploads/
+__pycache__/
+*.log
+server*.log
+soak_report*.jsonl

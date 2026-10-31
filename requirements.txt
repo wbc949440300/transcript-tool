@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+yt-dlp
+faster-whisper
+rapidocr-onnxruntime
+playwright
+python-docx
+openpyxl
+opencc-python-reimplemented
