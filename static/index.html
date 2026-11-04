@@ -132,12 +132,13 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
 .qq-side .row{flex-wrap:wrap;}
 #vresult[data-stack]{display:flex;flex-direction:column;gap:1rem;}
 /* 视频号结果里的竖屏视频限高居中，避免单条结果占满整屏 */
-.qq-main .media video{max-height:min(62vh,560px);width:auto;max-width:100%;margin:.4rem auto 0;display:block;}
+.qq-main .media:not(.media-stage) video{max-height:min(62vh,560px);width:auto;max-width:100%;margin:.4rem auto 0;display:block;}
 /* ---------- 结果卡媒体区：统一"暗色舞台"，竖屏视频不再漂在白纸上 ---------- */
 .media-stage{background:#0b0b12;border-radius:16px;padding:.55rem;display:flex;align-items:center;justify-content:center;overflow:hidden;}
-.media-stage video{max-height:min(56vh,520px);width:auto;max-width:100%;border-radius:11px;background:#000;display:block;margin:0;}
+.media-stage video{width:100%;height:auto;max-width:100%;max-height:min(56vh,520px);aspect-ratio:16/9;object-fit:contain;border-radius:11px;background:#000;display:block;margin:0;}
 .media-stage:has(.bili-embed){padding:0;background:#000;}
 .media-stage.portrait{max-width:min(46%,340px);margin-left:auto;margin-right:auto;padding:.4rem;}
+.media-stage.portrait video{width:auto;height:min(52vh,480px);max-width:100%;max-height:none;}
 .media-bar{display:flex;align-items:center;gap:.6rem .85rem;flex-wrap:wrap;margin-top:.7rem;}
 .media-tip{color:var(--muted);font-size:.78rem;line-height:1.6;flex:1 1 240px;min-width:220px;}
 /* 状态提示块：取代散落在页面里的紫色小字+灰字 */
@@ -682,6 +683,9 @@ if(!window.__stageOrient){
     const stage=v.closest('.media-stage'); if(!stage) return;
     const portrait=(v.videoHeight||0) > (v.videoWidth||0) * 1.05;
     stage.classList.toggle('portrait', portrait);
+    // 关键：<video poster> 在没有显式比例时会按封面图尺寸排版（横屏也被压成海报比例），
+    // 这里用元数据里的真实宽高写死 aspect-ratio，宽度交给 CSS 撑满。
+    if(v.videoWidth && v.videoHeight){ v.style.aspectRatio = v.videoWidth + '/' + v.videoHeight; }
   }, true);
 }
 
