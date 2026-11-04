@@ -61,14 +61,18 @@ def test_douyin_image_message_points_to_watch_dir(watch_dir):
     assert str(watch_dir) in msg
 
 
-def test_douyin_note_url_short_circuits_without_browser(watch_dir):
-    """/note/ 链接必须在开浏览器之前就返回提示（省一次页面访问 + 约 20 秒）。"""
-    from app.douyin import fetch_douyin
+def test_douyin_note_url_is_routed_through_video_path(watch_dir):
+    """图集 /note/<id> 要改写成 /video/<id> 再渲染。
 
-    with pytest.raises(RuntimeError) as ei:
-        fetch_douyin("https://www.douyin.com/note/7360323126909095219")
-    msg = str(ei.value)
-    assert "图集" in msg and "监听目录" in msg
+    实测（2026-11-04）：直接开 /note/ 页面不请求详情接口；开 /video/<id> 时抖音
+    会跳回 /note/<id> 并正常请求 aweme/v1/web/aweme/detail，返回 desc + images[]。
+    """
+    from app.douyin import _extract_video_id, normalize_url
+
+    nid = "7360323126909095219"
+    note = f"https://www.douyin.com/note/{nid}"
+    assert normalize_url(note) == f"https://www.douyin.com/video/{nid}"
+    assert _extract_video_id(note) == nid
 
 
 def test_douyin_image_message_without_watch_dir(tmp_path, monkeypatch):

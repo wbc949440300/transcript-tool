@@ -72,7 +72,7 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
 .pill.dur{background:#ecfdf5;color:#059669;}
 .pill.status{background:#f3e8ff;color:#7c3aed;}
 .result-title{font-size:1.1rem;font-weight:700;margin:.5rem 0 1rem;line-height:1.5;}
-.section-label{font-size:.72rem;font-weight:700;letter-spacing:.1em;color:#a78bfa;text-transform:uppercase;margin:1.1rem 0 .4rem;clear:both;}
+.section-label{font-size:.72rem;font-weight:700;letter-spacing:.1em;color:#a78bfa;text-transform:uppercase;margin:1.35rem 0 .45rem;clear:both;}
 .variant-switch{display:inline-flex;background:#f3f0fb;border:1px solid var(--border);border-radius:999px;padding:2px;gap:2px}
 .variant-switch button{border:0;background:transparent;color:var(--muted);font-size:.72rem;padding:.18rem .6rem;border-radius:999px;cursor:pointer;line-height:1.2}
 .variant-switch button.active{background:#fff;color:var(--brand);font-weight:600;box-shadow:0 1px 3px rgba(124,58,237,.18)}
@@ -123,7 +123,7 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
 .input-hint .hint-note{color:#9ca3af;font-size:.72rem;}
 #vresult[data-stack] > .card{scroll-margin-top:76px;}
 /* 视频号页两列布局：左侧 1/3 列表，右侧 2/3 结果/流程 */
-.qq-layout{display:grid;grid-template-columns:minmax(300px,1fr) 2fr;gap:1rem;align-items:start;}
+.qq-layout{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:1.25rem;align-items:start;}
 /* 还没有任何结果时右侧是全空的，两栏会让左侧显得又窄又空 → 空白态居中单栏 */
 .qq-layout.qq-empty{grid-template-columns:minmax(0,760px);justify-content:center;}
 .qq-layout.qq-empty .qq-main{display:none;}
@@ -133,6 +133,45 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
 #vresult[data-stack]{display:flex;flex-direction:column;gap:1rem;}
 /* 视频号结果里的竖屏视频限高居中，避免单条结果占满整屏 */
 .qq-main .media video{max-height:min(62vh,560px);width:auto;max-width:100%;margin:.4rem auto 0;display:block;}
+/* ---------- 结果卡媒体区：统一"暗色舞台"，竖屏视频不再漂在白纸上 ---------- */
+.media-stage{background:#0b0b12;border-radius:16px;padding:.55rem;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.media-stage video{max-height:min(56vh,520px);width:auto;max-width:100%;border-radius:11px;background:#000;display:block;margin:0;}
+.media-stage:has(.bili-embed){padding:0;background:#000;}
+.media-stage.portrait{max-width:min(46%,340px);margin-left:auto;margin-right:auto;padding:.4rem;}
+.media-bar{display:flex;align-items:center;gap:.6rem .85rem;flex-wrap:wrap;margin-top:.7rem;}
+.media-tip{color:var(--muted);font-size:.78rem;line-height:1.6;flex:1 1 240px;min-width:220px;}
+/* 状态提示块：取代散落在页面里的紫色小字+灰字 */
+.notice{border-radius:12px;padding:.75rem .9rem;font-size:.82rem;line-height:1.75;display:flex;gap:.6rem;align-items:flex-start;margin-top:.5rem;}
+.notice .n-ico{flex:0 0 auto;line-height:1.6;}
+.notice b{font-weight:700;}
+.notice.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;}
+.notice.muted{background:#f9fafb;border:1px solid var(--border);color:#4b5563;}
+/* ---------- 视频号左栏：卡片标题 / 列表行统一 ---------- */
+.qq-card-title{display:flex;align-items:baseline;gap:.45rem;flex-wrap:wrap;margin:0 0 .55rem;}
+.qq-card-title b{font-size:.92rem;font-weight:800;color:#312e42;}
+.qq-card-title span{font-size:.74rem;color:var(--muted);}
+.qq-list{display:flex;flex-direction:column;gap:.45rem;margin-top:.55rem;}
+.qq-row{display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:12px;padding:.5rem .6rem;background:#fff;transition:.12s;cursor:pointer;text-align:left;width:100%;text-decoration:none;color:inherit;}
+.qq-row:hover{border-color:var(--brand);box-shadow:0 6px 18px rgba(124,58,237,.10);}
+.qq-row .qr-ico{flex:0 0 auto;width:26px;height:26px;border-radius:8px;background:#f5f0ff;display:flex;align-items:center;justify-content:center;font-size:.85rem;}
+.qq-row .qr-main{min-width:0;flex:1;}
+.qq-row .qr-title{font-size:.83rem;font-weight:600;color:#27223a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.qq-row .qr-sub{font-size:.72rem;color:var(--muted);margin-top:.15rem;display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;}
+.qq-row .qr-act{flex:0 0 auto;display:flex;gap:.35rem;align-items:center;}
+.qq-row .ok{color:var(--ok);font-weight:700;}
+.qq-row .bad,.qq-row .fail{color:var(--danger);font-weight:700;}
+.qq-row .run{color:#6b7280;font-weight:700;}
+.qq-sub{display:flex;align-items:center;justify-content:space-between;gap:.4rem;flex-wrap:nowrap;margin:.85rem 0 .35rem;padding-top:.65rem;border-top:1px dashed var(--border);font-size:.8rem;font-weight:700;color:#4b5563;}
+.qq-sub>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.qq-sub .btn{flex:0 0 auto;}
+.qq-row.qq-task{cursor:default;padding:.45rem .55rem;}
+.qq-prog{font-size:.72rem;color:#6d28d9;font-weight:700;}
+.qq-bar{height:4px;border-radius:99px;background:#eee7fb;overflow:hidden;margin:.2rem 0 .15rem;}
+.qq-bar>i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#a78bfa,#7c3aed);}
+.qq-fail{font-size:.72rem;color:#b91c1c;line-height:1.55;margin:.15rem 0 .4rem;}
+.qq-task+.qq-bar+.qq-fail{margin-top:.1rem;}
+.qq-sub-note{font-weight:400;color:var(--muted);font-size:.72rem;margin-left:.35rem;}
+.qq-side .card>details{margin-top:0;}
 @media(max-width:1000px){ .qq-layout{grid-template-columns:1fr;} .qq-side{order:2;} .qq-main{order:1;} }
 .h-time{color:#c0b7dc;font-size:.7rem;margin-top:.15rem;}
 .h-right{display:flex;align-items:center;gap:.4rem;flex-shrink:0;}
@@ -172,6 +211,17 @@ footer{text-align:center;color:#9ca3af;font-size:.8rem;margin-top:3rem;line-heig
 @media(max-width:640px){ .dropdown-panel{min-width:92vw;left:-220px;} }
 .risk-banner{display:none;max-width:1120px;margin:.65rem auto 0;padding:.45rem .8rem;border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:10px;font-size:.8rem;line-height:1.5;text-align:center;}
 .risk-banner.alert-danger{border-color:#fca5a5;background:#fef2f2;color:#b91c1c;}
+/* ---------- 发现页（B站搜索 / 抖音评论） ---------- */
+.ds-hot{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:.55rem 0 0}
+.ds-head{display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:1px dashed var(--border)}
+.ds-item{display:flex;gap:.7rem;align-items:flex-start;padding:.65rem 0;border-bottom:1px solid var(--border)}
+.ds-item:last-child{border-bottom:none}
+.ds-chk{flex:0 0 auto;padding-top:.2rem}
+.ds-chk input{width:16px;height:16px;cursor:pointer}
+.ds-main{flex:1;min-width:0}
+.ds-title{font-weight:600;color:var(--text);text-decoration:none;font-size:.9rem;line-height:1.5;word-break:break-word}
+a.ds-title:hover{color:var(--brand)}
+.ds-meta{font-size:.78rem;color:var(--muted);margin-top:.2rem}
 </style>
 </head>
 <body>
@@ -185,8 +235,10 @@ footer{text-align:center;color:#9ca3af;font-size:.8rem;margin-top:3rem;line-heig
         <div class="nav-link" data-nav="extract" id="extractLink">文案提取工具 <span class="dropdown-caret">▾</span></div>
         <div class="dropdown-panel" id="extractPanel"></div>
       </div>
+      <div class="nav-link" data-nav="discover">发现</div>
       <div class="nav-link" data-nav="history">历史记录</div>
       <div class="nav-link" data-nav="accounts">账号</div>
+      <div class="nav-link" data-nav="settings">设置</div>
     </div>
   </div>
 </nav>
@@ -205,8 +257,12 @@ footer{text-align:center;color:#9ca3af;font-size:.8rem;margin-top:3rem;line-heig
   <!-- 文件上传 -->
   <div class="view" data-view="file" id="view-file"></div>
   <div class="view" data-view="accounts" id="view-accounts"></div>
+  <!-- 设置（可视化配置） -->
+  <div class="view" data-view="settings" id="view-settings"></div>
   <!-- 历史记录 -->
   <div class="view" data-view="history" id="view-history"></div>
+  <!-- 发现：B站关键词搜索 / 抖音一级评论（访客态） -->
+  <div class="view" data-view="discover" id="view-discover"></div>
 </div>
 
 <footer>
@@ -216,6 +272,20 @@ footer{text-align:center;color:#9ca3af;font-size:.8rem;margin-top:3rem;line-heig
 
 <script>
 const API = "/prod-api";
+// 服务重启后会话 token 会变：遇到 401 先访问首页拿新 cookie，再重试一次，
+// 避免已打开页面在重启后“所有接口都 401、列表看起来是空的”。
+(function(){
+  const _fetch = window.fetch.bind(window);
+  window.fetch = async function(input, init){
+    let r = await _fetch(input, init);
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if(r.status === 401 && url.indexOf('/prod-api/') >= 0){
+      try{ await _fetch('/', {cache:'no-store'}); }catch(e){}
+      r = await _fetch(input, init);
+    }
+    return r;
+  };
+})();
 const CS = { douyin:'#161823', xhs:'#fe2c55', kuaishou:'#ff6a00', bilibili:'#fb7299', qqvideo:'#07c160', batch:'#7c3aed', ocr:'#0ea5e9', file:'#10b981' };
 
 // 文案提取下拉菜单配置（对齐抖虫）
@@ -272,7 +342,7 @@ function routeFromHash(){
   const [path, query] = raw.split('?');
   const parts=path.split('/').filter(Boolean);
   const view=parts[0]||'home', key=parts[1]||'';
-  const ok=['home','video','batch','image','file','history','accounts'];
+  const ok=['home','video','batch','image','file','discover','history','accounts','settings'];
   const taskId=new URLSearchParams(query||'').get('task')||'';
   return ok.includes(view) ? {view:view, key:key, taskId:taskId} : {view:'home', key:'', taskId:''};
 }
@@ -289,9 +359,11 @@ const PAGE_TITLES = {
          bilibili:'B站视频文案提取', qqvideo:'视频号视频文案提取'},
   image:{ocr:'图片文案提取（OCR）'},
   file:{video:'视频转文字', audio:'录音转文字'},
+  discover:'发现（B站搜索 / 抖音评论）',
   batch:'批量提取文案',
   history:'历史记录',
-  accounts:'平台账号登录'
+  accounts:'平台账号登录',
+  settings:'设置'
 };
 function setPageTitle(view, key){
   if(view==='home'){ document.title='文案提取工具 - 视频/图片/文件转文字'; return; }
@@ -309,6 +381,11 @@ function viewLabel(view, key){
 // ---------- 视图 ----------
 
 const views = {
+  settings(){
+    return '<div class="hero"><h1>设置</h1>'
+      +'<p>常用配置直接在这里改，<b>保存后立即生效，不用重启服务</b>；同时写回 .env</p></div>'
+      +'<div id="settingsForm"><div class="muted" style="font-size:.85rem">正在读取配置…</div></div>';
+  },
   accounts(){
     return '<div class="hero"><h1>平台账号登录</h1>'
       +'<p>登录态存在本机；抓取默认匿名，只有在平台要求登录时才动用账号</p></div>'
@@ -349,45 +426,52 @@ const views = {
         +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://v.kuaishou.com/xxxx</code><span class="hint-note">或</span><code>https://www.kuaishou.com/f/xxxx</code></div>',
       bilibili:'<div class="hint-row"><span class="hint-tag">网页</span><code>https://www.bilibili.com/video/BVxxxx…</code></div>'
         +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://b23.tv/xxxx</code></div>',
-      qqvideo:'<div class="hint-row"><span class="hint-tag">提示</span><span class="hint-note">视频号链接不能直接解析/提交给下载器；请在微信里播放后点下载器注入的下载按钮，或抓包导出到下方监听目录。</span></div>',
+      qqvideo:'<div class="hint-row"><span class="hint-tag">链接模式</span><span class="hint-note">贴视频号分享链接可直接取出<b>正文文案 / 作者 / 封面 / 互动数据</b>（视频流微信只发给客户端，拿不到）。</span></div>'
+        +'<div class="hint-row"><span class="hint-tag">口播转文字</span><span class="hint-note">仍需在微信里播放后点下载器注入的下载按钮，或抓包导出到下方监听目录。</span></div>',
     };
     const nm=names[key]||'视频';
     const ph = '粘贴网页链接或 App 分享链接；也可直接粘贴整段分享文案';
     const hint = hints[key] ? '<div class="input-hint">'+hints[key]+'</div>' : '';
     if(key==='qqvideo'){
       return '<div class="hero"><h1>视频号视频文案提取</h1>'
-        +'<p>点「开始提取」→ 微信里点「下载」→ 结果直接显示在本页</p></div>'
+        +'<p>启动下载器 → 开始提取 → 微信里点「下载」→ 结果直接显示在本页</p></div>'
         + hint
         +'<div class="card">'
         +'<div id="qqFlowBlock">'
-        +'<label>提取流程</label>'
-        +'<div style="display:flex;flex-direction:column;gap:.45rem;margin:.55rem 0 .7rem;font-size:.88rem;line-height:1.55">'
-        +  '<div>1️⃣ 点下方「<b>开始提取</b>」（会自动开启文件监听）</div>'
-        +  '<div>2️⃣ 在<b>微信</b>里打开视频号视频并播放 → 点页面注入的「<b>下载</b>」按钮，<b>等待下载完成</b></div>'
-        +  '<div>3️⃣ 下载完成后自动转写，<b>结果（预览/截图/全文）会显示在本页</b>；期间请保持微信视频号页面开启</div>'
-        +'</div>'
-        +'<div class="row" style="margin:.1rem 0 .35rem">'
-        +'<button class="btn" id="qqStart">开始提取</button>'
-        +'<span class="h-sub">点完「下载」后等它下载完即可（保持视频号页面开启）；本页同时会列出最近的归档文案</span>'
+        +'<div class="qq-card-title"><b>提取流程</b><span>四步走完就出结果</span></div>'
+        +'<div id="extDlStatus" style="font-size:.82rem;color:var(--muted)">下载器检测中…</div>'
+        +'<div class="row" id="extDlActions" style="margin-top:.45rem"></div>'
+        +'<div style="display:flex;flex-direction:column;gap:.45rem;margin:.7rem 0;font-size:.88rem;line-height:1.55">'
+        +  '<div>1️⃣ 先点上方「<b>启动下载器</b>」（运行期间系统代理会指向本机，停止/退出后自动还原）</div>'
+        +  '<div>2️⃣ 再点下方「<b>开始提取</b>」（会开启文件监听）</div>'
+        +  '<div class="row" style="margin:.1rem 0 .2rem">'
+        +    '<button class="btn" id="qqStart">开始提取</button>'
+        +    '<span class="h-sub">点完「下载」后等它下载完即可（保持视频号页面开启）；本页同时会列出最近的归档文案</span>'
+        +  '</div>'
+        +  '<div>3️⃣ 在<b>微信</b>里打开视频号视频并播放 → 点页面注入的「<b>下载</b>」按钮，<b>等待下载完成</b></div>'
+        +  '<div>4️⃣ 下载完成后自动转写，<b>结果（预览/截图/全文）会显示在本页</b>；期间请保持微信视频号页面开启</div>'
         +'</div>'
         +'<div class="msg" id="vmsg"></div>'
         +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
         +'</div>'
-        +'<div id="qqStatusBlock" style="border-top:1px solid var(--line,#eee);margin-top:.7rem;padding-top:.7rem">'
-        +'<div id="extDlStatus" style="font-size:.82rem;color:var(--muted)">下载器检测中…</div>'
-        +'<div class="row" id="extDlActions" style="margin-top:.45rem"></div>'
-        +'<div id="watchStatus" style="margin-top:.6rem;font-size:.82rem;color:var(--muted)">监听检测中…</div>'
-        +'<div id="extDlTaskBox" style="border-top:1px solid var(--line,#eee);margin-top:.6rem;padding-top:.6rem">'
-        +'<div class="row" style="align-items:center;justify-content:space-between">'
-        +'<label style="margin:0">最近视频号下载任务<span style="font-size:.72rem;color:var(--muted)">（只读监控，不自动重试）</span></label>'
+        +'<div id="qqStatusBlock">'
+        +'<div class="qq-card-title"><b>下载器与监听目录</b><span>下载器负责把微信里的视频取下来</span></div>'
+        +'<div id="watchStatus" style="font-size:.82rem;color:var(--muted)">监听检测中…</div>'
+        +'<div id="storagePathRow" style="margin-top:.45rem;font-size:.82rem;color:var(--muted);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">'
+        +'<span>文件存放位置：<code id="storagePathText" style="word-break:break-all">检测中…</code></span>'
+        +'<button type="button" class="btn sm ghost" data-open-watch>打开文件夹</button>'
+        +'</div>'
+        +'<div id="extDlTaskBox">'
+        +'<div class="qq-sub">'
+        +'<span>最近视频号下载任务<span class="qq-sub-note">只读监控</span></span>'
         +'<button type="button" class="btn sm ghost" id="extDlTaskRefresh">刷新</button>'
         +'</div>'
         +'<div id="extDlTaskList" style="margin-top:.4rem;font-size:.78rem;color:var(--muted)">加载中…</div>'
         +'</div>'
         +'</div>'
-        +'<div id="qqLocalVideoBlock" style="border-top:1px solid var(--line,#eee);margin-top:.7rem;padding-top:.7rem">'
-        +'<div class="row" style="align-items:center;justify-content:space-between">'
-        +'<label style="margin:0">最近导入的本地视频 / 文件<span style="font-size:.72rem;color:var(--muted)">（点击打开结果，可预览本地视频）</span></label>'
+        +'<div id="qqLocalVideoBlock">'
+        +'<div class="qq-card-title" style="justify-content:space-between">'
+        +'<span style="display:flex;align-items:baseline;gap:.45rem;flex-wrap:wrap"><b>最近导入</b><span>本地视频 / 文件，点击打开结果</span></span>'
         +'<button type="button" class="btn sm ghost" id="localVideoRefresh">刷新</button>'
         +'</div>'
         +'<div id="localVideoList" style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">加载中…</div>'
@@ -432,11 +516,37 @@ const views = {
       +'<button class="btn" id="vbtn">提取文案</button>'
       +'</div>'
       +'<label style="display:flex;align-items:center;gap:.4rem;margin-top:.45rem;font-size:.8rem;color:#374151;cursor:pointer">'
-      +'<input type="checkbox" id="vframes"> 同时识别画面文字（OCR 画面里的字幕/文字；抖音/快手/小红书默认勾选）</label>'
+      +'<input type="checkbox" id="vframes"> 同时识别画面文字（OCR 画面里的字幕/文字；默认关闭，需要时手动勾选，会明显变慢）</label>'
       +'<div class="msg" id="vmsg"></div>'
       +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
         +'</div>'
         +'<div id="vresult"></div>';
+  },
+
+  discover(){
+    return '<div class="hero"><h1>发现 · 关键词找链接 / 抖音评论</h1>'
+      +'<p>两条不花账号、不花代理的通道：B站按关键词搜视频（20 条/页），抖音按作品链接取一级评论</p></div>'
+      +'<div class="card">'
+      +'<div class="section-label">B站 · 关键词搜索（访客态，无需登录）</div>'
+      +'<div class="row"><input id="dskw" type="text" placeholder="输入关键词，例如：编程副业" style="flex:1;min-width:200px">'
+      +'<button class="btn" id="dsBtn" data-ds="search">搜索</button></div>'
+      +'<div id="dshot" class="ds-hot"></div>'
+      +'<div class="msg" id="dsmsg"></div>'
+      +'<div id="dslist"></div>'
+      +'<div class="row" id="dsbar" style="display:none;align-items:center;gap:.6rem;margin-top:.6rem">'
+      +'<span class="muted" id="dsSel" style="font-size:.85rem"></span>'
+      +'<button class="btn ghost sm" id="dsExtractBtn" data-ds="extract" disabled>用选中链接批量提取</button>'
+      +'</div>'
+      +'</div>'
+      +'<div class="card">'
+      +'<div class="section-label">抖音 · 一级评论（访客态，无需登录）</div>'
+      +'<div class="row"><input id="dcurl" type="text" placeholder="粘贴抖音作品链接（/video/、/note/、v.douyin.com 都行）" style="flex:1;min-width:220px">'
+      +'<select id="dcmax" style="width:110px"><option value="50">50 条</option><option value="100" selected>100 条</option><option value="300">300 条</option><option value="1000">1000 条</option></select>'
+      +'<button class="btn" id="dcBtn" data-ds="comments">采集评论</button></div>'
+      +'<div class="input-hint"><div class="hint-row"><span class="hint-note">只取一级评论（回复需登录）。请求在作品页内发出，不滚页面、不算签名，起效约 5-10 秒。</span></div></div>'
+      +'<div class="msg" id="dcmsg"></div>'
+      +'<div id="dclist"></div>'
+      +'</div>';
   },
 
   batch(){
@@ -517,17 +627,171 @@ const views = {
 
 // ---------- 通用结果渲染 ----------
 // 视频源不可用（防盗链/链接过期）时隐藏预览，不给用户一个转圈的坏播放器
+// ★ 2026-11-04：抖音预览「进度条在走、画面不动」= 那条直链是 HEVC，而这个浏览器
+// 只能硬解 H.265（显卡不支持 / 关了图形加速时就黑画面，canPlayType 还会返回 "probably"）。
+// 所以不猜、只看事实：播了 1.5 秒却一帧都没解出来 → 换成 h264 那条直链重来一次。
+window.videoStallFallback=function(v){
+  try{
+    if(!v || v.dataset.codecRetry) return false;
+    const u=new URL(v.currentSrc||v.src, location.href);
+    if(u.searchParams.get('codec')) return false;
+    v.dataset.codecRetry='1';
+    const t0=v.currentTime||0, wasPlaying=!v.paused;
+    u.searchParams.set('codec','h264');
+    v.src=u.toString();
+    try{ v.load(); }catch(e){}
+    // 换源会重置播放状态：用户本来在播，就接着播（并跳回原位置，期望位置在 h264 那条上同样有效）
+    if(wasPlaying || t0>0.5){
+      const resume=function(){
+        try{ if(t0>0.5 && Math.abs(v.currentTime-t0)>1) v.currentTime=t0; }catch(e){}
+        try{ v.play().catch(function(){}); }catch(e){}
+      };
+      v.addEventListener('loadedmetadata', resume, {once:true});
+      setTimeout(resume, 2500);           // metadata 迟迟不来也别干等
+    }
+    const box=v.closest('.media');
+    const tip=box? box.querySelector('[data-codec-tip]') : null;
+    if(tip) tip.textContent='已自动切换 H.264 直链（原直链是 HEVC，当前浏览器只能硬件解码）。';
+    // 二次兜底：换成 h264 后还是没画面 → 这个作品大概只有 HEVC，直接告诉用户怎么办，
+    // 别让他对着一个"进度条在走"的黑屏等。
+    setTimeout(function(){
+      try{
+        if(v.paused) return;
+        const q=v.getVideoPlaybackQuality? v.getVideoPlaybackQuality() : null;
+        if(q && (q.totalVideoFrames||0)===0 && tip){
+          tip.textContent='这条作品只有 HEVC 编码，当前浏览器解不了；点「保存视频」用本机播放器看即可（文案提取不受影响）。';
+        }
+      }catch(e){}
+    }, 6000);
+    return true;
+  }catch(e){ return false; }
+};
+
+window.mediaErr=function(el){
+  // 解码/加载报错：先试一次 h264 直链，还是不行才隐藏（原来直接隐藏，等于把可修的当死路）
+  if(window.videoStallFallback(el)) return;
+  window.hideMedia(el);
+};
+
+// 竖屏视频：把暗色舞台收窄成"手机屏"比例，避免左右一大片黑边
+if(!window.__stageOrient){
+  window.__stageOrient=true;
+  document.addEventListener('loadedmetadata', function(e){
+    const v=e.target;
+    if(!v || v.tagName!=='VIDEO') return;
+    const stage=v.closest('.media-stage'); if(!stage) return;
+    const portrait=(v.videoHeight||0) > (v.videoWidth||0) * 1.05;
+    stage.classList.toggle('portrait', portrait);
+  }, true);
+}
+
+if(!window.__videoStallWatch){
+  window.__videoStallWatch=true;
+  document.addEventListener('play', function(e){
+    const v=e.target;
+    if(!v || v.tagName!=='VIDEO' || !v.closest || !v.closest('[data-player-media]')) return;
+    if(v.dataset.stallProbed) return;
+    v.dataset.stallProbed='1';
+    setTimeout(function(){
+      try{
+        if(v.paused || v.readyState<2 || v.currentTime<=0.2) return;
+        const q=v.getVideoPlaybackQuality? v.getVideoPlaybackQuality() : null;
+        const frames=q? (q.totalVideoFrames||0) : -1;
+        if(frames===0) window.videoStallFallback(v);
+      }catch(err){}
+    }, 1500);
+  }, true);
+}
+
 window.hideMedia=function(el){
   try{
     const box=el.closest('.media');
     if(box){
+      // 卡片上若有「刷新直链」按钮就优先引导用它 —— 只重取一次详情、换上新地址，
+      // 不重跑转写、文案不动。没有该按钮的平台才退回"重新提取"。
+      const card=box.closest('.card');
+      const hasRefresh=!!(card && card.querySelector('[data-refresh-media]'));
       box.innerHTML='<div style="color:var(--muted);font-size:.85rem;padding:.4rem 0">'
-        +'视频源已过期或不可访问，已隐藏预览；重新提取即可再次尝试。</div>';
+        +'视频源已过期或不可访问，已隐藏预览。'
+        +(hasRefresh
+            ? '点上方 <b>「刷新直链」</b> 换上新地址即可恢复（不会重跑转写，文案不动）；'
+            : '')
+        +'也可以重新提取（会重新转写一次，并新建一条记录）。</div>';
     }
   }catch(e){}
 };
 
+// 视频号「链接模式」卡片（2026-11-04）：贴分享链接 → 正文文案/作者/封面/互动数据。
+// 视频流拿不到（微信只把播放地址发给客户端），所以没有预览/截图，只展示能拿到的部分。
+function renderChannelCard(d, into){
+  const tid=d.taskId||''; const tidEsc=escapeHtml(tid);
+  const m=d.channelMeta||{};
+  const title=escapeHtml(d.title||'(无标题)');
+  const text=escapeHtml(d.content||d.textContent||'');
+  const coverUrl=d.cover ? (tid ? API+'/media/cover?taskId='+encodeURIComponent(tid) : d.cover) : '';
+  const coverEsc=escapeHtml(coverUrl);
+  const stats=[['赞',m.likes],['收藏',m.favCount],['转发',m.forwardCount],['评论',m.commentCount]]
+    .filter(x=>x[1]!==undefined&&x[1]!==null&&x[1]!=='').map(x=>escapeHtml(String(x[1]))+' '+x[0]).join(' · ');
+  const sub=[];
+  if(m.publishAt) sub.push('发布 '+escapeHtml(m.publishAt));
+  if(m.location) sub.push(escapeHtml(m.location));
+  const tags=(m.tags||[]).map(t=>'<span class="hint-tag" style="cursor:default">#'+escapeHtml(t)+'</span>').join('');
+  const TIPS={
+    export:'把这条文案导出成文件：txt / Markdown / Word / Excel。\n弹窗里还能勾「仅文案」——只导出正文。',
+    copy:'把正文文案复制到剪贴板。',
+  };
+  const h='<div class="card" data-task-id="'+tidEsc+'">'
+    +'<div class="meta">'
+    +  '<span class="pill platform">视频号</span>'
+    +  '<span class="pill" style="background:rgba(7,193,96,.12);color:#07c160;font-weight:600">链接模式</span>'
+    +  (stats?'<span class="pill dur">'+stats+'</span>':'')
+    +  '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
+    +  '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>'
+    +'</div>'
+    +'<div class="result-title">'+title+'</div>'
+    + ((d.uploader||m.headImg||sub.length)
+        ? '<div class="row" style="align-items:center;gap:.5rem;margin:.15rem 0 .5rem;flex-wrap:wrap">'
+          +(m.headImg?'<img src="'+escapeHtml(m.headImg)+'" referrerpolicy="no-referrer" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;flex:none">':'')
+          +(d.uploader?'<span style="font-size:.85rem;font-weight:600">'+escapeHtml(d.uploader)+'</span>':'')
+          +(sub.length?'<span style="color:var(--muted);font-size:.78rem">'+sub.join(' · ')+'</span>':'')
+        +'</div>'
+        : '')
+    + (coverUrl ? '<img class="cover" src="'+coverEsc+'" alt="封面" onerror="this.style.display=\'none\'" style="max-width:min(240px,60%)">' : '')
+    +'<div class="section-label">正文文案（作者发布时写的文字）</div>'
+    +'<div class="transcript" data-copy-src="txt">'+(text||'(该作品没有正文文案)')+'</div>'
+    + (tags?'<div class="row" style="gap:.35rem;margin-top:.5rem;flex-wrap:wrap">'+tags+'</div>' : '')
+    +'<div class="msg show" style="font-size:.82rem;line-height:1.6">'
+    +  '视频号只把播放地址发给<b>微信客户端</b>，网页链接取不到视频流，所以这里只有文案和封面。'
+    +  '要<b>口播语音转文字</b>：在微信里打开这条视频并播放 → 点下载器注入的「下载」按钮 → '
+    +  '文件落到下载目录后会自动转写（标题/作者/封面会按本条记录填好）。'
+    +'</div>'
+    +'</div>';
+  // 与 renderVideoResult 一致：视频号页是堆叠模式，新结果插到最上面，最多保留 5 条
+  if (into.dataset && into.dataset.stack !== undefined) {
+    into.querySelectorAll(':scope > .card').forEach((c, i, arr) => {
+      if (arr.length - i >= 5) c.remove();
+    });
+    const wrap=document.createElement('div');
+    wrap.innerHTML=h;
+    const card=wrap.firstElementChild;
+    const head=document.createElement('div');
+    head.className='row';
+    head.style.cssText='justify-content:space-between;margin:0 0 .4rem';
+    head.innerHTML='<span class="pill platform">刚提取</span>'
+      + '<span style="font-size:.72rem;color:var(--muted)">新的结果会插入最上方，本页保留最近 5 条；点上方结果标签可跳转</span>';
+    card.prepend(head);
+    into.insertBefore(card, into.firstChild);
+    initTranscriptVariant(card);
+    refreshQqResultTabs();
+    return;
+  }
+  into.innerHTML=h;
+  initTranscriptVariant(into);
+}
+
 function renderVideoResult(d, into){
+  // 视频号「链接模式」任务没有视频流，走专用卡片（否则会渲染出一堆空区）
+  if(d.taskType==='videochannel'){ renderChannelCard(d, into); return; }
   const tid=d.taskId||'';
   const tidEsc=escapeHtml(tid);
   // 封面走代理，补 Referer，避免平台防盗链导致裂图
@@ -537,18 +801,23 @@ function renderVideoResult(d, into){
   const title=escapeHtml(d.title||'(无标题)');
   const content=escapeHtml(d.content||'(无简介)');
   const text=escapeHtml(d.textContent||'(未识别到语音：该视频可能没有口播，例如纯音乐/MV/风景片；下方"作品简介"是作者的标题与话题)');
+  // 没有口播（或口播极短）时，后端会把「画面文字」顶上当正文（extractor 的"字幕优先"）：
+  // 此时 textContent 与 frameText 是同一份文本，两块钱都渲染就等于把同一段话显示两遍。
+  const _normTxt = s => String(s||'').replace(/\s+/g,'');
+  const bodyFromFrames = !!(d.frameText && _normTxt(d.textContent) && _normTxt(d.textContent)===_normTxt(d.frameText));
   const bv=/BV[0-9A-Za-z]{6,}/.exec(d.webpageUrl||'')?.[0] || '';
   const biliUrl=(d.platform==='B站' && bv)
     ? 'https://player.bilibili.com/player.html?bvid='+encodeURIComponent(bv)+'&page=1&autoplay=0&high_quality=1&danmaku=0'
     : '';
-  // 抖音/快手直链几小时过期：给这两个平台一个「刷新直链」（只重取详情，不重跑转写）
-  const canRefresh=((d.platform==='抖音'||d.platform==='快手') && !!tid) ? true : false;
+  // 抖音/快手/B站的直链几小时过期：给这三个平台一个「刷新直链」（只重取详情，不重跑转写）
+  const canRefresh=((d.platform==='抖音'||d.platform==='快手'||d.platform==='B站') && !!tid) ? true : false;
   // 各按钮的悬停说明（挂在按钮本身上，不额外加图标）
   const TIPS={
-    refresh:'抖音/快手的视频直链是平台 CDN 的临时地址，几小时后会过期：'
+    refresh:'抖音/快手/B站的视频直链是平台 CDN 的临时地址，几小时后会过期：'
       +'过期后预览会黑屏、截图失败、保存视频下不动。\n'
       +'点「刷新直链」只重新取一次平台详情、把新地址换上——不会重新转写，文案不动，也不会新建记录。\n'
-      +'只有抖音/快手需要它（其它平台直链不过期）。',
+      +'B站走的是和首次提取完全相同的那条路径（yt-dlp 重取），所以取到的直链形状一致。\n'
+      +'其它平台（小红书等）的直链不过期，不需要它。',
     export:'把这条文案导出成文件：txt / Markdown / Word / Excel / SRT 字幕（带时间轴）。\n'
       +'弹窗里还能勾「仅文案」——只导出正文，不带标题、简介和来源链接。',
     correct:'用大模型修同音字/错别字和繁体字（只输出「替换对」，本地校验后应用，不会重写句子）。\n'
@@ -563,54 +832,63 @@ function renderVideoResult(d, into){
     +  '<span class="pill platform">'+platform+'</span>'
     +  (d.duration?'<span class="pill dur">时长 '+fmtDur(d.duration)+'</span>':'')
     +  '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
-    +  (canRefresh?'<button class="copy" data-refresh-media="'+tidEsc+'"'
-                  +' data-tip="'+escapeHtml(TIPS.refresh)+'">刷新直链</button>':'')
     +  (window.AI_ENABLED ? '<button class="copy" data-ai-correct="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.correct)+'">AI 纠错</button>' : '')
     +  (window.AI_ENABLED ? '<button class="copy" data-ai-note="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.note)+'">生成笔记</button>' : '')
     +  '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>'
     +'</div>'
     +'<div class="result-title">'+title+'</div>'
+    +(d.videoUrlList&&d.videoUrlList.length
+      ? '<div class="section-label">视频预览</div>'
+        + (biliUrl
+            ? '<div class="row" style="margin:.1rem 0 .45rem">'
+              + '<button type="button" class="btn sm" data-player-mode="proxy">站内预览（静音）</button>'
+              + '<button type="button" class="btn sm ghost" data-player-mode="bili">B站播放器（带声音）</button>'
+              + '<span style="color:var(--muted);font-size:.76rem">官方播放器直连 B站，可能有广告/弹幕，清晰度受登录状态影响</span>'
+              + '</div>'
+            : '')
+        +'<div class="media media-stage" data-player-media data-bili="'+escapeHtml(biliUrl)+'">'
+        +'<video src="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+mediaTick+'"'
+        +(coverUrl?' poster="'+escapeHtml(API+'/media/cover?taskId='+encodeURIComponent(d.taskId||''))+'"':'')
+        +' controls preload="metadata" onerror="mediaErr(this)"></video>'
+        +'</div>'
+        +'<div class="media-bar">'
+        +'<a class="btn sm" style="text-decoration:none" href="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+'&download=1'+mediaTick+'">保存视频</a>'
+        +(canRefresh?'<button type="button" class="btn sm ghost" data-refresh-media="'+tidEsc+'">刷新直链</button>':'')
+        +'<span class="media-tip" data-codec-tip>'
+        +(canRefresh?'竖屏/横屏都能播；直链来自平台 CDN，几小时后过期，过期点「刷新直链」（不重新转写）'
+                    :'直链来自平台 CDN，链接可能过期；过期请重新提取')
+        +'</span>'
+        +'</div>'
+      :'')
+    +(d.videoUrlList&&d.videoUrlList.length
+      ? '<div class="section-label" id="framesLabel-'+tidEsc+'">视频截图</div>'
+        +'<div class="frame-strip" id="frames-'+tidEsc+'" data-task="'+tidEsc+'" data-cover="'+escapeHtml(coverUrl)+'"></div>'
+      : (coverUrl? '<div class="section-label">封面</div><img class="cover" src="'+coverEsc+'" onerror="this.style.display=\'none\'">':''))
     +'<div class="section-label">作品简介 / 话题标签</div>'
     +'<div class="desc" data-copy-src="desc">'+content+'</div>'
     +'<div class="section-label" style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">'
-    +  '<span>口播文案（全片语音转写）</span>'
+    +  '<span>'+(bodyFromFrames?'文案（来自画面文字 OCR · 本片无口播）':'口播文案（全片语音转写）')+'</span>'
     +  '<span class="variant-switch" data-variant-switch>'
     +    '<button type="button" class="active" data-variant="s">简体</button>'
     +    '<button type="button" data-variant="t">繁体</button>'
     +  '</span>'
     +'</div>'
     +'<div class="transcript" data-copy-src="txt">'+text+'</div>'
-    +(d.frameText
-      ? '<div class="section-label" style="margin-top:.7rem">画面文字（OCR · 画面中出现的文字，与口播分开）</div>'
-        +'<div class="transcript" style="max-height:300px;overflow:auto">'+escapeHtml(d.frameText)+'</div>'
+    +(d.frameText && !bodyFromFrames
+      ? ((String(d.frameMainText||'') || String(d.frameSceneText||''))
+          ? (String(d.frameMainText||'')
+              ? '<div class="section-label" style="margin-top:.7rem">作者文案（作者在画面中展示的文字）</div>'
+                +'<div class="transcript" data-variant-ocr style="max-height:300px;overflow:auto">'+escapeHtml(d.frameMainText)+'</div>'
+              : '')
+            +(String(d.frameSceneText||'')
+              ? '<div class="section-label" style="margin-top:.7rem">画面文字（画面背景/其他文字，OCR）</div>'
+                +'<div class="transcript" data-variant-ocr style="max-height:300px;overflow:auto">'+escapeHtml(d.frameSceneText)+'</div>'
+              : '')
+          : '<div class="section-label" style="margin-top:.7rem">画面文字（OCR · 画面中出现的文字，与口播分开）</div>'
+            +'<div class="transcript" data-variant-ocr style="max-height:300px;overflow:auto">'+escapeHtml(d.frameText)+'</div>')
       : '')
     +'<div id="aiBox-'+tidEsc+'"></div>'
     +'<div id="noteBox-'+tidEsc+'"></div>'
-    +(d.videoUrlList&&d.videoUrlList.length
-      ? '<div class="section-label">视频预览</div>'
-        + (biliUrl
-            ? '<div class="row" style="margin:.1rem 0 .35rem">'
-              + '<button type="button" class="btn sm" data-player-mode="proxy">站内预览（静音）</button>'
-              + '<button type="button" class="btn sm ghost" data-player-mode="bili">B站播放器（带声音）</button>'
-              + '<span style="color:var(--muted);font-size:.76rem">官方播放器直连 B站，可能有广告/弹幕，清晰度受登录状态影响</span>'
-              + '</div>'
-            : '')
-        +'<div class="media" data-player-media data-bili="'+escapeHtml(biliUrl)+'">'
-        +'<video src="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+mediaTick+'"'
-        +(coverUrl?' poster="'+escapeHtml(API+'/media/cover?taskId='+encodeURIComponent(d.taskId||''))+'"':'')
-        +' controls preload="metadata" onerror="hideMedia(this)"></video>'
-        +'<div class="row" style="margin-top:.5rem">'
-        +'<a class="btn sm ghost" style="text-decoration:none" href="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+'&download=1'+mediaTick+'">保存视频</a>'
-        +'<span style="color:var(--muted);font-size:.78rem">'
-        +(canRefresh?'视频源来自平台 CDN，几小时后会过期；过期点上方「刷新直链」即可（无需重新提取）'
-                    :'视频源来自平台 CDN，链接可能过期；过期请重新提取')
-        +'</span>'
-        +'</div></div>'
-      :'')
-    +(d.videoUrlList&&d.videoUrlList.length
-      ? '<div class="section-label" id="framesLabel-'+tidEsc+'">视频截图</div>'
-        +'<div class="frame-strip" id="frames-'+tidEsc+'" data-task="'+tidEsc+'" data-cover="'+escapeHtml(coverUrl)+'"></div>'
-      : (coverUrl? '<div class="section-label">封面</div><img class="cover" src="'+coverEsc+'" onerror="this.style.display=\'none\'">':''))
     +'</div>';
   // 堆叠模式（容器带 data-stack，视频号页用）：新结果插到最上面，旧结果保留在下方，最多 5 条
   if (into.dataset && into.dataset.stack !== undefined) {
@@ -665,59 +943,46 @@ if(!window.__qqTabsBound){
   });
 }
 
-// 从视频里截 5 帧做缩略图带（同源代理，可画进 canvas）；失败则退回单张封面
+// 视频截图：由**服务端 ffmpeg 抽帧**，前端只负责把结果 <img> 显示出来。
+// ★ 2026-11-03 改：以前是浏览器另开一个 video 元素、seek 到 5 个时间点再 drawImage。
+//   那条路要求"第二路流能及时缓冲到目标位置"，而抖音/B站 CDN 对同一条直链的并发流
+//   本来就慢 —— 实测就是 seek 超时、截图全黑，失败率高到没法用。
+//   （前面试过两种缓解：把元素从离屏改到视口内、把 preload 从 metadata 改 auto ——
+//   都没解决，因为瓶颈不在浏览器，而在"第二条流要重新缓冲一遍"。）
+//   现在 ffmpeg 在服务端直接从 URL 抽帧，浏览器不需要实时缓冲任何东西。
+//   抽好的帧会缓存在任务目录，同一任务重看不再重复抽。
 function captureFrames(box, taskId){
   const strip=box.querySelector('#frames-'+taskId);
   if(!strip || !taskId) return;
-  strip.innerHTML='<div style="grid-column:1/-1;color:var(--muted);font-size:.8rem;padding:.2rem 0">视频截图中…</div>';
+  strip.innerHTML='<div class="notice muted" style="grid-column:1/-1;margin-top:.35rem">'
+    +'<span class="n-ico">⏳</span><div>视频截图中…（服务端抽帧，首次约 10~40 秒）</div></div>';
   const cover=strip.dataset.cover||'';
-  const v=document.createElement('video');
-  v.muted=true; v.preload='metadata'; v.playsInline=true;
-  v.style.cssText='position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
-  document.body.appendChild(v);
-  const cleanup=()=>{ try{ v.removeAttribute('src'); v.load(); }catch(e){} v.remove(); };
-  const fail=()=>{
-    if(strip.isConnected){
-      const label=box.querySelector('#framesLabel-'+taskId);
-      if(cover){ if(label) label.textContent='封面'; strip.outerHTML='<img class="cover" src="'+cover+'" onerror="this.style.display=\'none\'">'; }
-      else { if(label) label.remove(); strip.remove(); }
-    }
-    cleanup();
+  const tick=window.MEDIA_TICK?'&v='+window.MEDIA_TICK:'';
+  const N=5;
+  const srcOf=i=>API+'/media/frame?taskId='+encodeURIComponent(taskId)+'&i='+i+'&n='+N+tick;
+  const fail=(why)=>{
+    if(!strip.isConnected) return;
+    const card=strip.closest('.card');
+    const hasRefresh=!!(card && card.querySelector('[data-refresh-media]'));
+    strip.innerHTML='<div class="notice warn" style="grid-column:1/-1;margin-top:.35rem">'
+      +'<span class="n-ico">⚠️</span><div>'
+      +'<b>视频截图没取到</b>'+(why?('（'+escapeHtml(why)+'）'):'')
+      +'<br>'+(hasRefresh
+        ? '服务端直接从视频源抽帧也没成功，通常是这条直链已过期或被限速：点上方「<b>刷新直链</b>」换一组地址后再试（不用重新转写）。'
+        : '服务端直接从视频源抽帧没成功：本地文件可能已被移动/删除，或该视频的编码 ffmpeg 解不出画面。重新导入一次原文件即可。')
+      +'</div></div>'
+      +(cover?'<img class="cover" src="'+cover+'" alt="封面" onerror="this.style.display=\'none\'" style="grid-column:1/-1;margin-top:.4rem">':'');
   };
-  const seek=t=>new Promise((res,rej)=>{
-    const to=setTimeout(()=>rej(new Error('seek timeout')),6000);
-    v.onseeked=()=>{ clearTimeout(to); res(); };
-    v.currentTime=t;
+  strip.innerHTML=Array.from({length:N},(_,i)=>
+    '<img src="'+srcOf(i)+'" alt="视频截图 '+(i+1)+'">').join('');
+  const els=Array.from(strip.querySelectorAll('img'));
+  let failed=0;
+  els.forEach(el=>{
+    el.onerror=()=>{
+      failed++; el.style.display='none';
+      if(failed>=els.length) fail('全部取帧失败');
+    };
   });
-  (async()=>{
-    try{
-      await new Promise((res,rej)=>{
-        const to=setTimeout(()=>rej(new Error('metadata timeout')),20000);
-        v.onloadedmetadata=()=>{ clearTimeout(to); res(); };
-        v.onerror=()=>{ clearTimeout(to); rej(new Error('video error')); };
-        v.src=API+'/media/proxy?taskId='+encodeURIComponent(taskId)+(window.MEDIA_TICK?'&v='+window.MEDIA_TICK:'');
-      });
-      const dur=v.duration;
-      if(!isFinite(dur)||dur<1) throw new Error('bad duration');
-      const shots=[];
-      for(const p of [0.08,0.28,0.5,0.72,0.92]){
-        await seek(Math.min(Math.max(dur*p,0.05), Math.max(dur-0.05,0.05)));
-        if(!strip.isConnected) throw new Error('detached');
-        const w=Math.min(960, v.videoWidth||960);
-        const h=Math.max(1, Math.round(w*(v.videoHeight||720)/(v.videoWidth||1280)));
-        const c=document.createElement('canvas'); c.width=w; c.height=h;
-        const ctx=c.getContext('2d');
-        ctx.drawImage(v,0,0,w,h);
-        // 首帧解码可能晚于 seeked 事件（GPU 忙时），等一拍补绘一次防黑帧
-        await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,120)));
-        ctx.drawImage(v,0,0,w,h);
-        shots.push(c.toDataURL('image/jpeg',0.72));
-      }
-      if(!strip.isConnected) throw new Error('detached');
-      strip.innerHTML=shots.map((src,i)=>'<img src="'+src+'" alt="视频截图 '+(i+1)+'">').join('');
-      cleanup();
-    }catch(e){ fail(); }
-  })();
 }
 
 // ---------- 截图预览：悬停浮空放大 + 点击灯箱 ----------
@@ -853,17 +1118,21 @@ function initTranscriptVariant(box){
   const el=box.querySelector('.transcript[data-copy-src="txt"]');
   const sw=box.querySelector('[data-variant-switch]');
   if(!el || !sw) return;
+  // 作者文案 / 画面文字两段也跟随简/繁切换（之前只转口播正文，用户会以为切换失效）
+  const nodes=[el, ...box.querySelectorAll('.transcript[data-variant-ocr]')];
   // 原文只保留一次（已有就复用，快照恢复场景不要覆盖）
-  if(!el.dataset.original) el.dataset.original = el.textContent;
+  nodes.forEach(n=>{ if(!n.dataset.original) n.dataset.original = n.textContent; });
 
   const setActive=(v)=>sw.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.variant===v));
   const apply=async(v)=>{
     setActive(v);
     const cacheKey = (v==='t') ? 't' : 's';
-    if(!el.dataset[cacheKey]){
-      el.dataset[cacheKey] = await convertVariant(el.dataset.original, cacheKey);
-    }
-    el.textContent = el.dataset[cacheKey];
+    await Promise.all(nodes.map(async n=>{
+      if(!n.dataset[cacheKey]){
+        n.dataset[cacheKey] = await convertVariant(n.dataset.original, cacheKey);
+      }
+      n.textContent = n.dataset[cacheKey];
+    }));
   };
   sw.addEventListener('click', e=>{
     const b=e.target.closest('[data-variant]'); if(!b) return;
@@ -969,8 +1238,10 @@ function showView(id, key='', pushState=false){
   const homeNav=document.querySelector('[data-nav="home"]');
   const extractNav=document.getElementById('extractLink');
   const histNav=document.querySelector('[data-nav="history"]');
+  const discNav=document.querySelector('[data-nav="discover"]');
   if(id==='home'){ homeNav&&homeNav.classList.add('active'); }
   else if(id==='history'){ histNav&&histNav.classList.add('active'); }
+  else if(id==='discover'){ discNav&&discNav.classList.add('active'); }
   else { extractNav&&extractNav.classList.add('active'); }
   // 渲染
   const v=document.getElementById('view-'+id);
@@ -978,7 +1249,15 @@ function showView(id, key='', pushState=false){
   v.innerHTML=views[id](key, );
   const container=document.querySelector('.container');
   if(container) container.classList.toggle('qq-wide', id==='video' && key==='qqvideo');
-  document.querySelectorAll('.view').forEach(x=>{ if(x!==v) x.className='view'; });
+  // 切走后把别的视图里的播放器停掉并摘掉 src：只隐藏不清理的话，
+  // <video> 会继续在后台拉流/出声，截帧条也会留在 DOM 里（抖音的画面就"跟着"跑到别的页面了）
+  document.querySelectorAll('.view').forEach(x=>{
+    if(x===v) return;
+    x.className='view';
+    x.querySelectorAll('video').forEach(m=>{
+      try{ m.pause(); m.removeAttribute('src'); m.load(); }catch(e){}
+    });
+  });
   // 事件绑定
   bindViewEvents();
   // 还原上次的提取结果（同一视图+同一平台才还原）
@@ -989,6 +1268,8 @@ function showView(id, key='', pushState=false){
   if(id==='history' && window.loadHistory) window.loadHistory();
   // 账号页加载登录状态
   if(id==='accounts' && window.loadAccounts) window.loadAccounts();
+  // 设置页加载配置
+  if(id==='settings' && window.loadSettings) window.loadSettings();
   // 同步 URL 与标签页标题（replaceState 不触发 hashchange，不会造成循环渲染）
   const wantHash = '#/' + id + (key ? '/' + key : '');
   if (location.hash !== wantHash) {
@@ -1018,15 +1299,9 @@ function layoutQqPage(){
   const layout=document.createElement('div'); layout.className='qq-layout';
   const side=document.createElement('div'); side.className='qq-side';
   const main=document.createElement('div'); main.className='qq-main';
-  const reset=el=>{ if(!el) return; el.style.borderTop='0'; el.style.marginTop='0'; el.style.paddingTop='0'; };
   const wrapCard=el=>{ const c=document.createElement('div'); c.className='card'; c.append(el); return c; };
-  reset(lv);
-  reset(status);
-  const flowCard=document.createElement('div'); flowCard.className='card';
-  flowCard.append(flow, status);
-  const advCard=document.createElement('div'); advCard.className='card';
-  advCard.append(adv);
-  side.append(flowCard, wrapCard(lv), advCard);
+  // 每块独立成卡：原来"流程 + 下载器状态"挤在同一张卡里靠细线分隔，观感最乱
+  side.append(wrapCard(flow), wrapCard(status), wrapCard(lv), wrapCard(adv));
   main.append(tabs, vres);
   layout.append(side, main);
   if(hero && hero.parentElement) hero.parentElement.insertBefore(layout, hero.nextSibling);
@@ -1044,6 +1319,36 @@ function syncQqEmptyState(){
 
 function bindViewEvents(){
   layoutQqPage();
+  // 发现页：事件委托只绑一次（视图会重渲染，不能按 id 绑）
+  if(!window.__discoverBound){
+    window.__discoverBound=true;
+    document.addEventListener('click', function(e){
+      var el=e.target.closest('[data-ds]'); if(!el) return;
+      var act=el.dataset.ds, url=el.dataset.url || '';
+      if(act==='search') discoverSearch();
+      else if(act==='hot'){ var i=document.getElementById('dskw'); if(i) i.value=el.dataset.kw || ''; discoverSearch(); }
+      else if(act==='comments') discoverComments();
+      else if(act==='one') discoverPick(url);
+      else if(act==='extract') discoverExtractSelected();
+      else if(act==='ccopy') discoverCopyComments();
+      else if(act==='ctxt') discoverDownloadTxt();
+    });
+    document.addEventListener('change', function(e){
+      var t=e.target; if(!t) return;
+      if(t.id==='dsAll'){
+        Array.prototype.forEach.call(document.querySelectorAll('.ds-check'), function(c){ c.checked=t.checked; });
+        discoverSync();
+      }else if(t.classList && t.classList.contains('ds-check')){
+        discoverSync();
+      }
+    });
+    document.addEventListener('keydown', function(e){
+      if(e.key!=='Enter' || !e.target) return;
+      if(e.target.id==='dskw'){ e.preventDefault(); discoverSearch(); }
+      else if(e.target.id==='dcurl'){ e.preventDefault(); discoverComments(); }
+    });
+  }
+  if(document.getElementById('dshot')) discoverHot();
   // 历史记录：返回刚才的提取结果（仅在内存里还存有结果快照时出现）
   const hBack=document.getElementById('hBack');
   if(hBack) hBack.addEventListener('click', ()=>{
@@ -1197,8 +1502,20 @@ function toast(msg){ const m=$('#vmsg')||$('#bmsg')||$('#imsg')||$('#fmsg'); if(
 
 // ---------- 提取逻辑 ----------
 async function api(path, opt={}){
-  const r=await fetch(API+path, Object.assign({headers:{'Content-Type':'application/json'}}, opt));
-  return r.json();
+  // GET 幂等 → 网络抖动时自动重试两次；POST/PUT 不重试（避免重复建任务）
+  const method=(opt.method||'GET').toUpperCase();
+  const retries = method==='GET' ? 2 : 0;
+  let lastErr;
+  for(let i=0;i<=retries;i++){
+    try{
+      const r=await fetch(API+path, Object.assign({headers:{'Content-Type':'application/json'}}, opt));
+      return await r.json();
+    }catch(e){
+      lastErr=e;
+      if(i<retries) await new Promise(res=>setTimeout(res, 500*(i+1)));
+    }
+  }
+  throw lastErr;
 }
 
 // ---------- 进行中任务：切视图 / 刷新后仍能继续 ----------
@@ -1295,14 +1612,24 @@ function pollTaskEntry(entry){
         setTimeout(tick, 2000);
       }
     }).catch(e=>{
+      // 网络抖动 / 服务重启：**不要立刻判定任务失败**。
+      // 任务可能还在后台跑，或者已经跑完进了历史记录（2026-11-03 实测踩到：
+      // 重启服务时前端两个请求同时失败，界面直接显示 "Failed to fetch"，
+      // 但任务其实成功了）。先重试几次再走历史兜底。
+      entry._netErrs=(entry._netErrs||0)+1;
+      if(entry._netErrs<=3){
+        if(isCurrent(entry)) setTaskLoading(entry, '与服务的连接中断，重试中…');
+        setTimeout(tick, 2500 + entry._netErrs*1500);
+        return;
+      }
       taskPollers.delete(entry.taskId);
       // 服务重启后内存任务会丢 → 试历史记录（已完成的任务仍能恢复）
       api('/history/detail?taskId='+encodeURIComponent(entry.taskId)).then(h=>{
         const d=h.data;
         if(d && d.status==='SUCCESS'){ entry.done=true; entry.status='SUCCESS'; saveActive(); if(isCurrent(entry)) showTaskSuccess(entry, historyToResult(d)); }
         else if(d){ entry.done=true; entry.status='FAILURE'; saveActive(); if(isCurrent(entry)) showTaskFailure(entry, d.error_msg||'任务失败'); }
-        else if(isCurrent(entry)) showTaskFailure(entry, e.message);
-      }).catch(()=>{ if(isCurrent(entry)) showTaskFailure(entry, e.message); });
+        else if(isCurrent(entry)) showTaskFailure(entry, '连接中断，且历史里没有这个任务 —— 请到「历史记录」确认');
+      }).catch(()=>{ if(isCurrent(entry)) showTaskFailure(entry, '连接中断，请到「历史记录」确认任务是否已完成'); });
     });
   };
   setTimeout(tick, 500);
@@ -1361,6 +1688,176 @@ async function batchExtract(){
   }catch(e){ $('#bbtn').disabled=false; m.className='msg error show'; m.textContent=e.message; }
 }
 
+// ---------- 发现页：B站搜索 + 抖音评论（2026-11-04，纯访客态、零代理零账号） ----------
+function dsEsc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function dsDur(sec){
+  var n=Number(sec)||0; if(n<=0) return '时长未知';
+  var m=Math.floor(n/60), s=Math.floor(n%60);
+  return m ? (m+':'+String(s).padStart(2,'0')) : (s+' 秒');
+}
+function dsPlay(n){
+  n=Number(n)||0;
+  if(n>=100000000) return (n/100000000).toFixed(1)+' 亿';
+  if(n>=10000) return (n/10000).toFixed(1)+' 万';
+  return String(n);
+}
+function dsMsg(id, text, bad){
+  var el=document.getElementById(id); if(!el) return;
+  el.className = bad ? 'msg error show' : 'msg show';
+  el.textContent = text || '';
+}
+
+async function discoverHot(){
+  var box=document.getElementById('dshot'); if(!box) return;
+  try{
+    var j=await api('/discover/bilibili/hot?limit=8');
+    if(j.code!==200 || !j.data || !j.data.items) return;
+    box.innerHTML='<span class="muted" style="font-size:.8rem">热搜：</span>'
+      + j.data.items.map(function(x){
+          return '<span class="hint-tag" data-ds="hot" data-kw="'+dsEsc(x.keyword)+'" style="cursor:pointer">'+dsEsc(x.keyword)+'</span>';
+        }).join(' ');
+  }catch(e){ /* 热搜失败不影响搜索 */ }
+}
+
+async function discoverSearch(){
+  var inp=document.getElementById('dskw');
+  var kw=(inp && inp.value || '').trim();
+  if(!kw){ dsMsg('dsmsg','请先输入关键词', true); return; }
+  var btn=document.getElementById('dsBtn');
+  var list=document.getElementById('dslist');
+  if(btn) btn.disabled=true;
+  if(list) list.innerHTML='';
+  var bar=document.getElementById('dsbar'); if(bar) bar.style.display='none';
+  dsMsg('dsmsg','搜索中…（B站访客接口，约 1-2 秒）');
+  try{
+    var j=await api('/discover/bilibili/search?keyword='+encodeURIComponent(kw)+'&page=1&pageSize=20');
+    if(j.code!==200 || !j.data) throw new Error(j.msg || '搜索失败');
+    var d=j.data, items=d.items || [];
+    if(!items.length){ dsMsg('dsmsg','没搜到视频，换个关键词试试', true); return; }
+    dsMsg('dsmsg','共 '+d.total+' 个结果，本页 '+items.length+' 条（访客态，未登录）');
+    if(list){
+      list.innerHTML='<div class="ds-head"><label style="font-size:.85rem"><input type="checkbox" id="dsAll"> 全选</label>'
+        +'<span class="muted" style="font-size:.8rem">勾选后可批量提取文案</span></div>'
+        + items.map(function(it){
+            return '<div class="ds-item">'
+              +'<label class="ds-chk"><input type="checkbox" class="ds-check" data-url="'+dsEsc(it.url)+'"></label>'
+              +'<div class="ds-main"><a class="ds-title" href="'+dsEsc(it.url)+'" target="_blank" rel="noopener">'+dsEsc(it.title)+'</a>'
+              +'<div class="ds-meta">'+dsEsc(it.author)+' · '+dsPlay(it.play)+' 播放 · '+dsDur(it.duration)+'</div></div>'
+              +'<button class="btn ghost sm" data-ds="one" data-url="'+dsEsc(it.url)+'">提取文案</button>'
+              +'</div>';
+          }).join('');
+    }
+    if(bar) bar.style.display='flex';
+    discoverSync();
+  }catch(e){
+    dsMsg('dsmsg','搜索失败：'+(e.message||e), true);
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+
+function discoverSync(){
+  var boxes=Array.prototype.slice.call(document.querySelectorAll('.ds-check:checked'));
+  var info=document.getElementById('dsSel');
+  if(info) info.textContent = boxes.length ? ('已选 '+boxes.length+' 条') : '勾选视频后可批量提取';
+  var btn=document.getElementById('dsExtractBtn');
+  if(btn) btn.disabled = !boxes.length;
+}
+
+function discoverPick(url){
+  if(!url) return;
+  showView('video','bilibili',true);
+  var i=document.getElementById('vurl');
+  if(i){ i.value=url; i.focus(); }
+  notify('已填入链接，点「开始提取」即可','success');
+}
+
+function discoverExtractSelected(){
+  var urls=Array.prototype.slice.call(document.querySelectorAll('.ds-check:checked'))
+    .map(function(c){ return c.dataset.url; }).filter(Boolean);
+  if(!urls.length){ notify('请先勾选视频','error'); return; }
+  showView('batch','',true);
+  var t=document.getElementById('burls');
+  if(t){ t.value=urls.join('\n'); t.scrollIntoView({block:'center'}); }
+  notify('已填入 '+urls.length+' 条，点「开始批量提取」','success');
+}
+
+async function discoverComments(){
+  var inp=document.getElementById('dcurl');
+  var url=(inp && inp.value || '').trim();
+  if(!url){ dsMsg('dcmsg','请先粘贴抖音作品链接', true); return; }
+  var sel=document.getElementById('dcmax');
+  var max=parseInt(sel && sel.value || '100',10) || 100;
+  var btn=document.getElementById('dcBtn');
+  var list=document.getElementById('dclist');
+  if(btn) btn.disabled=true;
+  if(list) list.innerHTML='';
+  dsMsg('dcmsg','正在打开作品页并取评论…（约 5-10 秒）');
+  try{
+    var j=await api('/discover/douyin/comments',{method:'POST',body:JSON.stringify({url:url,maxCount:max,pageSize:20})});
+    if(j.code!==200 || !j.data) throw new Error(j.msg || '采集失败');
+    var d=j.data, cs=d.comments || [];
+    dsMsg('dcmsg','共 '+d.total+' 条评论，已取 '+d.fetched+' 条（'+d.pages+' 页 / '+d.elapsed+' 秒，访客态）');
+    window.__dcData=cs; window.__dcMeta=d;
+    if(list){
+      list.innerHTML='<div class="row" style="justify-content:flex-end;gap:.5rem;margin:.5rem 0">'
+        +'<button class="btn ghost sm" data-ds="ccopy">复制全部</button>'
+        +'<button class="btn ghost sm" data-ds="ctxt">下载 txt</button>'
+        +'</div>'
+        + cs.map(function(c){
+            return '<div class="ds-item"><div class="ds-main">'
+              +'<div class="ds-title" style="cursor:default">'+dsEsc(c.text)+'</div>'
+              +'<div class="ds-meta">'+dsEsc(c.nickname||'匿名')+(c.ip?(' · '+dsEsc(c.ip)):'')+' · 赞 '+c.digg
+              +(c.replyCount?(' · 回复 '+c.replyCount):'')+(c.hot?' · 热门':'')+'</div></div></div>';
+          }).join('');
+      if(!cs.length) list.innerHTML='<div class="muted" style="padding:.6rem 0">这个作品还没有可见的一级评论。</div>';
+    }
+  }catch(e){
+    dsMsg('dcmsg','采集失败：'+(e.message||e), true);
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+
+function dcText(){
+  var d=window.__dcMeta || {};
+  var cs=window.__dcData || [];
+  if(!cs.length) return '';
+  var out='# 抖音一级评论 '+ (d.url||'') +'\n';
+  out += '# 总数 '+ (d.total||'?') +' 条，本文件 '+ cs.length +' 条（采集于访客态）\n\n';
+  out += cs.map(function(c,i){
+    return (i+1)+'. '+(c.nickname||'匿名')+(c.ip?('（'+c.ip+'）'):'')+' · 赞 '+c.digg+'\n'+c.text+'\n';
+  }).join('\n');
+  return out;
+}
+
+function discoverCopyComments(){
+  var txt=dcText();
+  if(!txt){ notify('还没有可复制的评论','error'); return; }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ notify('已复制 '+window.__dcData.length+' 条评论','success'); },
+      function(){ notify('复制失败，请改用下载 txt','error'); });
+  }else{
+    notify('当前浏览器不支持剪贴板，请用下载 txt','error');
+  }
+}
+
+function discoverDownloadTxt(){
+  var txt=dcText();
+  if(!txt){ notify('还没有可下载的评论','error'); return; }
+  var meta=window.__dcMeta || {};
+  var blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='douyin_comments_'+(meta.awemeId||Date.now())+'.txt';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
+}
+
 function resumeBatchEntry(entry){
   if(!entry.done){ const btn=document.querySelector('#bbtn'); if(btn) btn.disabled=true; }
   pollBatchEntry(entry);
@@ -1403,6 +1900,7 @@ async function imgFromUrl(){
   try{
     const j=await api('/transcript/image/ocr/doTask',{method:'POST',body:JSON.stringify({sourceUrl:url,sourceType:'image'})});
     $('#iload').className='loading'; $('#ibtn').disabled=false;
+    if(j && j.code && j.code!==200){ m.className='msg error show'; m.textContent='识别失败: '+(j.msg||'未知错误'); return; }
     renderImageResult(j.data?.text||'', $('#iresult'));
   }catch(e){ $('#iload').className='loading'; $('#ibtn').disabled=false; m.className='msg error show'; m.textContent=e.message; }
 }
@@ -1414,6 +1912,7 @@ async function imgUpload(file){
   try{
     const r=await fetch(API+'/transcript/image/ocr/upload',{method:'POST',body:fd});
     const j=await r.json(); $('#iload').className='loading';
+    if(j && j.code && j.code!==200){ m.className='msg error show'; m.textContent='识别失败: '+(j.msg||'未知错误'); return; }
     renderImageResult(j.data?.text||'', $('#iresult'));
   }catch(e){ $('#iload').className='loading'; m.className='msg error show'; m.textContent='上传失败: '+e.message; }
 }
@@ -1463,24 +1962,51 @@ window.loadAccounts = async function(){
       h+='<div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;font-size:.82rem;padding:.4rem 0;border-top:1px dashed var(--border)">'
         +'<span style="min-width:7.5rem">'+escapeHtml(a.account)+'</span>'
         +(a.logging_in? '<span style="color:#b45309">登录中…（请到浏览器窗口完成）</span>'
-          : a.logged_in? '<span style="color:#047857">● 已登录</span><span class="muted">'+escapeHtml(a.logged_at||'')+'（'+a.days_ago+' 天前）</span>'
+          : a.logged_in? '<span style="color:#047857">● 已登录</span><span class="muted">'+escapeHtml(a.logged_at||'')+'（'+escapeHtml(a.ago||((a.days_ago||0)+' 天前'))+'）</span>'
           : '<span class="muted">○ 未登录</span>')
         +(a.cooldown? '<span style="color:#b45309">· 冷却中 '+Math.ceil(a.cooldown/60)+' 分钟</span>':'')
+        // 出口：配代理池后最该确认的一件事——这个号到底走哪条 IP
+        +'<span style="color:'+(a.egress?'#0369a1':'var(--muted)')+'" title="'+(a.egress?'该号稳定绑定这条出口':'没有可用出口，走本机直连')+'">· 出口 '+escapeHtml(a.egress_label||'直连')+'</span>'
+        // 健康度：池内号才用得上（默认账号不参与轮换，没有这些计数）
+        +((a.ok||a.fail)? '<span class="muted" title="累计成功/失败（跨天不重置）">· 成功 '+a.ok+' / 失败 '+a.fail+((a.success_rate!=null)?'（'+Math.round(a.success_rate*100)+'%）':'')+'</span>':'')
+        +((a.used_today!=null&&a.daily_max)? '<span class="muted">· 今日 '+a.used_today+'/'+a.daily_max+(a.capped?'（已达上限）':'')+'</span>':'')
+        +((a.last_fail)? '<span class="muted" title="'+escapeHtml(String(a.last_fail))+'" style="cursor:help">· 最近失败 ⓘ</span>':'')
         +'<span class="muted" style="margin-left:auto">'+escapeHtml(a.profile||'')+'</span>'
         +'<button class="btn sm ghost" data-login="'+key+'|'+acct+'">'+(a.logged_in?'重新登录':'登录')+'</button>'
         +(a.logged_in? '<button class="btn sm ghost" data-check="'+key+'|'+acct+'">验证</button>':'')
+        +'<button class="btn sm ghost" data-logout="'+key+'|'+acct+'" title="删除这个号的登录 cookie 与专属浏览器 profile（历史记录不受影响，重新登录可恢复）">退出</button>'
         +'</div>';
     });
     h+='</div>';
   });
   h+='<div style="padding-top:.35rem"><button class="btn sm ghost" id="acctOpenDir">打开 cookies 文件夹</button> '
-    +'<button class="btn sm ghost" id="acctRefresh">刷新状态</button>'
+    +'<button class="btn sm ghost" id="acctRefresh">刷新状态</button> '
+    +'<button class="btn sm ghost" id="acctProxyCheck" title="逐个探测已配置的出口通不通，不用拿任务试错">出口自检</button>'
+    +'<span class="muted" id="acctProxyMsg" style="font-size:.78rem;margin-left:.4rem"></span>'
     +'<span class="muted" style="font-size:.78rem;margin-left:.5rem">登录窗口打开后，这里最多等 5 分钟就会变成"已登录"</span></div>';
   box.innerHTML=h;
   box.querySelectorAll('[data-login]').forEach(b=>b.onclick=()=>accountLogin(b.dataset.login));
   box.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>accountCheck(b.dataset.check));
+  box.querySelectorAll('[data-logout]').forEach(b=>b.onclick=()=>accountLogout(b.dataset.logout));
   const od=document.getElementById('acctOpenDir'); if(od) od.onclick=accountOpenDir;
   const rf=document.getElementById('acctRefresh'); if(rf) rf.onclick=()=>window.loadAccounts();
+  // 出口自检：逐个探测已配置的出口，配完代理立刻知道通不通（不用拿任务试错）
+  const pc=document.getElementById('acctProxyCheck');
+  if(pc) pc.onclick=async function(){
+    const msg=document.getElementById('acctProxyMsg');
+    pc.disabled=true; msg.style.color='var(--muted)'; msg.textContent=' 正在逐个探测（每个出口约 2 秒）…';
+    try{
+      const j=await api('/proxy/check',{method:'POST'});
+      const dd=(j&&j.data)||{};
+      const parts=Object.keys(dd).map(k=>{
+        const v=dd[k]||{};
+        return k+(v.ok?' ✓通':' ✗'+(v.detail||'不通'));
+      });
+      msg.style.color=((j&&j.code===200)&&parts.every(p=>p.indexOf('✓')>=0))?'#047857':'#b91c1c';
+      msg.textContent=' '+(j&&j.msg?j.msg:'')+(parts.length?(' — '+parts.join(' | ')):'');
+    }catch(e){ msg.style.color='#b91c1c'; msg.textContent=' 自检失败：'+(e.message||e); }
+    finally{ pc.disabled=false; }
+  };
 };
 
 async function accountLogin(spec){
@@ -1502,6 +2028,21 @@ async function accountCheck(spec){
     const j=await api('/login/check',{method:'POST',body:JSON.stringify({platform:platform,account:account||''})});
     notify(j.msg||'验证完成', j.code===200?'success':'error');
   }catch(e){ notify('验证失败：'+e,'error'); }
+  window.loadAccounts();
+}
+
+async function accountLogout(spec){
+  const [platform,account]=String(spec).split('|');
+  const who = account || '默认账号';
+  if(!confirm('退出「'+who+'」的登录？\n\n'
+    +'会删除：该号的登录 cookie + 它专用的浏览器 profile\n'
+    +'（被平台标记过的浏览器身份也一并清掉）\n\n'
+    +'历史记录和已提取的文案不受影响，重新登录即可恢复。')) return;
+  notify('正在退出 '+who+' …');
+  try{
+    const j=await api('/login/logout',{method:'POST',body:JSON.stringify({platform:platform,account:account||''})});
+    notify(j.msg||'已退出登录', j.code===200?'success':'error');
+  }catch(e){ notify('退出失败：'+e,'error'); }
   window.loadAccounts();
 }
 
@@ -1555,8 +2096,9 @@ function init(){
   // 下拉开关
   document.getElementById('extractLink').addEventListener('click', e=>{ e.stopPropagation(); document.getElementById('extractPanel').classList.toggle('open'); });
   document.addEventListener('click', e=>{ if(!e.target.closest('.dropdown')) document.getElementById('extractPanel').classList.remove('open'); });
-  // 画面文字 OCR：按平台自动默认勾选（抖音/快手/小红书没有平台字幕），
-  // 用户手动改过（change）之后就不再自动覆盖他的选择
+  // 画面文字 OCR：**默认不勾选**（2026-11-03 按需求改）。
+  // 它会抽帧跑 OCR，明显拖慢速度，而且大多数视频并不需要；改成按需手动开。
+  // 用户手动改过（change）之后依然不会被覆盖。
   document.addEventListener('change', e=>{
     if(e.target && e.target.id==='vframes') e.target.dataset.touched='1';
   });
@@ -1564,8 +2106,7 @@ function init(){
     if(!e.target || e.target.id!=='vurl') return;
     const box=document.getElementById('vframes');
     if(!box || box.dataset.touched) return;
-    const u=(e.target.value||'').toLowerCase();
-    box.checked=/douyin\.com|iesdouyin\.com|kuaishou\.com|gifshow\.com|xiaohongshu\.com|xhslink\.com/.test(u);
+    box.checked=false;
   });
   // 悬停说明气泡：任何带 data-tip 的元素都能用（说明挂在按钮本身上，不额外加按钮）
   (function bindTips(){
@@ -1615,16 +2156,17 @@ function init(){
       notify(j.msg||'已打开监听目录', j.code===200?'success':'error');
     }).catch(()=>notify('打开监听目录失败','error')).finally(()=>{ b.disabled=false; });
   });
-  // 顶部 nav
-  // 顶部 nav：全部新标签打开，当前标签（含进行中任务）保持不变
+  // 顶部 nav：**留在当前标签页**切换（只有下拉菜单里的提取入口才新开标签）
+  // 2026-11-03 改：此前是全部新标签打开，用户反馈"点任意入口都弹新标签"太吵。
   document.querySelectorAll('[data-nav]').forEach(n=>n.addEventListener('click',()=>{
-    if(n.dataset.nav==='home') window.open('#/home','_blank');
-    else if(n.dataset.nav==='history') window.open('#/history','_blank');
-    else if(n.dataset.nav==='accounts') window.open('#/accounts','_blank');
+    const v = n.dataset.nav;
+    if(!v || v === 'extract') return;   // extract 是下拉菜单，由下面的面板处理
+    const want = '#/' + v;
+    if(location.hash !== want) location.hash = want;
   }));
-  // 品牌 Logo：也新标签回首页
+  // 品牌 Logo：当前标签回首页
   const brand=document.querySelector('.brand');
-  if(brand) brand.addEventListener('click', ()=>window.open('#/home','_blank'));
+  if(brand) brand.addEventListener('click', ()=>{ if(location.hash!=='#/home') location.hash='#/home'; });
   // 下拉项：在新标签页打开对应功能（原标签保持不变，和参考产品一致）
   document.getElementById('extractPanel').addEventListener('click', e=>{
     const item=e.target.closest('.dd-item'); if(!item) return;
@@ -1731,12 +2273,15 @@ function historyResultTarget(d){
 function historyToResult(d){
   let extra={}; try{ extra=JSON.parse(d.extra||'{}'); }catch(e){}
   return {
-    taskId:d.task_id, platform:d.platform, title:d.title, content:d.content,
+    taskId:d.task_id, taskType:d.task_type, platform:d.platform, title:d.title, content:d.content,
     textContent:d.text_content, cover:d.cover, duration:d.duration,
     uploader:d.uploader, webpageUrl:d.webpage_url,
+    channelMeta:extra.channelMeta || null,
     videoUrlList:(extra.videoUrlList && extra.videoUrlList.length) ? extra.videoUrlList : null,
     segments:extra.segments || null,
     frameText:extra.frameText || null,
+    frameMainText:extra.frameMainText || null,
+    frameSceneText:extra.frameSceneText || null,
   };
 }
 
@@ -1784,15 +2329,23 @@ async function renderHistoryResult(id){
 let _corrCache = {};
 
 // ---------- 外部下载器（wx_channels_download） ----------
+let _extInstalled = null;   // 缓存“是否已安装”，避免点启动时又等一次 /ext/status
 async function loadExtDlStatus(){
   const el = document.getElementById('extDlStatus');
   if(!el) return;
   const actions = document.getElementById('extDlActions');
+  // 醒目提示：按钮是「页面经代理加载时」注入的，代理开启前就打开的旧页面不会自动出现
+  const reenterHint = '<div style="margin-top:.55rem;padding:.6rem .7rem;border:1px solid #f59e0b;'
+    + 'background:#fffbeb;border-radius:8px;color:#92400e;line-height:1.6;font-size:.82rem">'
+    + '<div style="font-weight:700;font-size:.86rem">⚠️ 微信里没有「下载」按钮？</div>'
+    + '<div style="margin-top:.2rem">如果视频号页面是<b>在启动下载器之前就打开着</b>的，旧页面不会自动出现按钮。'
+    + '请在微信里<b>重新进入该视频号视频页面</b>（或下拉刷新）后再播放。</div></div>';
   try{
     const j = await (await fetch(API + '/ext/status')).json();
     const d = j.data || {};
     if(d.online){
-      const ps = (d.platforms || []).filter(p => p.available).map(p => p.name).join('/');
+      _extInstalled = true;
+      const ps = '微信视频号';
       const proxyTxt = d.proxy_listening === true
         ? ' · 代理已启动'
         : (d.proxy_listening === false ? ' · <span style="color:#d97706">代理未启动</span>（注入按钮/视频号下载不可用）' : '');
@@ -1801,6 +2354,16 @@ async function loadExtDlStatus(){
         ? ' · <span style="color:#d97706">MITM 证书未安装</span>（视频号下载不可用，点右侧修复）'
         : '';
       const px = d.system_proxy || {};
+      const proxyBad = !px.is_mitm;
+      const hintHtml = !proxyBad ? reenterHint
+        : ('<div style="margin-top:.55rem;padding:.6rem .7rem;border:1px solid #dc2626;'
+           + 'background:#fef2f2;border-radius:8px;color:#991b1b;line-height:1.6;font-size:.82rem">'
+           + '<div style="font-weight:700;font-size:.86rem">⚠️ 现在微信里不会有「下载」按钮：系统代理没指向下载器</div>'
+           + '<div style="margin-top:.2rem">当前系统代理：<b>' + escapeHtml(String(px.server || '未开启'))
+           + '</b>，需要指向 <b>127.0.0.1:' + escapeHtml(String(px.mitm_port || 2023)) + '</b>。'
+           + '点下方「<b>把系统代理指向本机</b>」即可自动切换（停止下载器时会还原原代理）；'
+           + '如果这台电脑装有 Clash / v2ray 等代理软件，请先关闭它的「系统代理」开关，避免互相抢；'
+           + '切换后请重进视频号页面播放。</div></div>');
       const proxyNote = px.is_mitm
         ? ' · 系统代理 → 本机 ' + escapeHtml(String(px.server || ('127.0.0.1:' + (px.mitm_port || 2023)))) + '（点「停止下载器」会自动还原）'
         : (d.proxy_listening ? ' · <span style="color:#d97706">系统代理未指向本机</span>（微信里的下载按钮不会注入）' : '');
@@ -1808,17 +2371,22 @@ async function loadExtDlStatus(){
         + (d.version ? ' · v' + escapeHtml(d.version) : '')
         + ' · 下载目录：' + escapeHtml(d.download_dir || '(未从配置读取到)')
         + proxyTxt + certTxt + proxyNote
-        + (ps ? ' · 可用平台：' + escapeHtml(ps) : '');
+        + (ps ? ' · 可用平台：' + escapeHtml(ps) : '')
+        + hintHtml;
       el.style.color = '';
       if(actions) actions.innerHTML =
-        (certBad ? '<button type="button" class="btn sm" id="extDlFixBtn">修复证书（管理员）</button>' : '')
+        (proxyBad ? '<button type="button" class="btn sm" id="extDlUseMitmBtn">把系统代理指向本机</button>' : '')
+        + (certBad ? '<button type="button" class="btn sm" id="extDlFixBtn">修复证书（管理员）</button>' : '')
         + '<button type="button" class="btn sm ghost" id="extDlStopBtn">停止下载器</button>';
       const sb = document.getElementById('extDlStopBtn');
       if(sb) sb.addEventListener('click', extDlStop);
+      const ub = document.getElementById('extDlUseMitmBtn');
+      if(ub) ub.addEventListener('click', extDlUseMitm);
       const fb = document.getElementById('extDlFixBtn');
       if(fb) fb.addEventListener('click', extDlFixCert);
     }else{
       const installed = d.installed === true;
+      _extInstalled = installed;
       const px = d.system_proxy || {};
       const staleProxy = (px.enable === 1 || px.enable === true) && px.is_mitm === true;
       el.innerHTML = '<span style="color:#dc2626">● 离线</span>'
@@ -1827,11 +2395,12 @@ async function loadExtDlStatus(){
         + (staleProxy
             ? ' · <span style="color:#dc2626">系统代理还指向本机 127.0.0.1:'
               + escapeHtml(String(px.mitm_port || 2023)) + '，会导致全机断网</span>'
-            : '');
+            : '')
+        + reenterHint;
       el.style.color = '';
       if(actions) actions.innerHTML =
         '<button type="button" class="btn sm" id="extDlSetupBtn">'
-        + (installed ? '启动下载器（弹管理员确认）' : '一键安装并启动')
+        + (installed ? '启动下载器（自动接管系统代理）' : '一键安装并启动')
         + '</button>'
         + (staleProxy ? '<button type="button" class="btn sm ghost" id="extDlProxyBtn">还原系统代理</button>' : '')
         + '<span style="color:var(--muted);font-size:.76rem">'
@@ -1859,10 +2428,14 @@ async function loadExtTasks(){
   if(!el) return;
   try{
     const j=await (await fetch(API+'/ext/tasks?limit=6')).json();
+    if(j.code !== 200){ el.textContent = '加载失败：' + (j.msg || '接口异常'); return; }
     const d=j.data||{};
     if(d.online===false){
-      el.innerHTML='<span style="color:#dc2626">下载器未运行</span>'
-        +(d.error ? ' · '+escapeHtml(d.error) : '');
+      el.innerHTML='<div class="notice warn" style="margin-top:.35rem">'
+        +'<span class="n-ico">⚠️</span><div>'
+        +'<b>下载器未运行 · 无法连接</b>（下载器未启动，或端口不是 2022）'
+        +(d.error ? '<br>'+escapeHtml(d.error) : '')
+        +'<br>点上方「<b>启动下载器</b>」，起来后这里会自动恢复。</div></div>';
       return;
     }
     const items=d.items||[];
@@ -1877,16 +2450,21 @@ async function loadExtTasks(){
       const size=Number(t.size)||0;
       const sizeTxt=size>=1048576?(size/1048576).toFixed(1)+'MB':(size?Math.max(1,Math.round(size/1024))+'KB':'');
       const hint=failed?extErrorHint(t.error):'';
-      return '<div class="row" style="align-items:center;gap:.4rem;margin:.3rem 0">'
-        +'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escapeHtml(t.name||'')+'">'+escapeHtml(t.name||'')+'</span>'
-        +'<span class="status-tag '+cls+'">'+escapeHtml(t.statusText||'未知')+'</span>'
-        +'<span style="font-size:.68rem;color:var(--muted);flex:0 0 auto">'+escapeHtml(t.createdAt||'')+'</span>'
+      const pct=Math.max(0,Math.min(100,Number(t.progress)||0));
+      const downloading=(t.status===2 || t.status===4);
+      return '<div class="qq-row qq-task">'
+        +'<span class="qr-ico">'+(failed?'⚠️':'📹')+'</span>'
+        +'<span class="qr-main">'
+        +  '<span class="qr-title" title="'+escapeHtml(t.name||'')+'">'+escapeHtml(t.name||'')+'</span>'
+        +  '<span class="qr-sub"><span class="'+cls+'">'+escapeHtml(t.statusText||'未知')+'</span>'
+        +    (sizeTxt?'<span>'+sizeTxt+'</span>':'')
+        +    '<span>'+escapeHtml(t.createdAt||'')+'</span></span>'
+        +'</span>'
+        +(downloading?'<span class="qr-act"><span class="qq-prog">'+pct+'%</span></span>':'')
         +'</div>'
-        +(t.status===2 || t.status===4
-          ? '<div style="font-size:.68rem;color:var(--muted);margin:-.1rem 0 .3rem">进度 '+Math.max(0,Math.min(100,Number(t.progress)||0))+'%'+(sizeTxt?' · '+sizeTxt:'')+'</div>'
-          : '')
+        +(downloading?'<div class="qq-bar"><i style="width:'+pct+'%"></i></div>':'')
         +(failed
-          ? '<div style="font-size:.72rem;color:#b91c1c;line-height:1.45;margin:-.1rem 0 .4rem">'
+          ? '<div class="qq-fail">'
             + escapeHtml(String(t.error||'下载失败').slice(0,300))
             +(hint?'<br>'+escapeHtml(hint):'')+'</div>'
           : '');
@@ -1898,27 +2476,50 @@ async function extDlSetupStart(){
   const box = document.getElementById('extDlActions');
   const btn = document.getElementById('extDlSetupBtn');
   const step = (t) => { if(btn){ btn.disabled = true; btn.textContent = t; } };
+  step('准备中…');   // 立即反馈，不等状态探测
   try{
-    const st = await (await fetch(API + '/ext/status')).json();
-    if(!(st.data || {}).installed){
+    // 已安装状态用状态卡缓存，避免点启动时再等一次 /ext/status
+    let installed = _extInstalled;
+    if(installed === null){
+      try{
+        const st = await (await fetch(API + '/ext/status')).json();
+        installed = !!(st.data || {}).installed;
+        _extInstalled = installed;
+      }catch(e){}
+    }
+    if(installed === false){
       step('安装中…（首次需下载约 37MB）');
       const sj = await (await fetch(API + '/ext/setup', {method:'POST'})).json();
       if(sj.code !== 200){ notify(sj.msg || '安装失败', 'error'); loadExtDlStatus(); return; }
+      _extInstalled = true;
     }
     step('启动中…（请在弹出的管理员确认框点「是」）');
     const rj = await (await fetch(API + '/ext/start', {method:'POST'})).json();
     if(rj.code === 200){
       notify('下载器已启动：微信打开视频号播放，点注入的「下载」按钮即可', 'success');
-      // 顺手把监听接线到下载器的下载目录（未启用时），落地即自动转写
-      try{
-        const wj = await (await fetch(API + '/watch/status')).json();
-        if(!(wj.data || {}).enabled){
+      // 启动后：自动接管系统代理 + 监听接线（后台执行，不阻塞按钮恢复）
+      (async()=>{
+        try{
           const sj = await (await fetch(API + '/ext/status')).json();
-          const dd = (sj.data || {}).download_dir || '';
-          if(dd) await fetch(API + '/watch/start', {method:'POST',
-            headers:{'Content-Type':'application/json'}, body: JSON.stringify({dir: dd})});
-        }
-      }catch(e){}
+          const px = (sj.data || {}).system_proxy || {};
+          // 别的电脑可能装了 Clash/v2ray/没装代理：下载器启动后若代理没指过来，
+          // 自动指一次（会先备份原代理，停止/退出时还原）；失败则页面保留一键按钮兜底。
+          if(!px.is_mitm){
+            const pj = await (await fetch(API + '/ext/proxy/use-mitm', {method:'POST'})).json();
+            notify(pj.msg || (pj.code===200 ? '已自动把系统代理指向下载器'
+                                            : '自动接管系统代理失败：请点「把系统代理指向本机」重试'),
+                   pj.code===200 ? 'success' : 'error');
+          }
+          const wj = await (await fetch(API + '/watch/status')).json();
+          if(!(wj.data || {}).enabled){
+            const dd = (sj.data || {}).download_dir || '';
+            if(dd) await fetch(API + '/watch/start', {method:'POST',
+              headers:{'Content-Type':'application/json'}, body: JSON.stringify({dir: dd})});
+            loadWatchStatus();
+          }
+          loadExtDlStatus();
+        }catch(e){}
+      })();
     }else{
       const hint = (rj.data || {}).hint || '';
       notify((rj.msg || '启动失败') + (hint ? '：' + hint : ''), 'error');
@@ -1927,8 +2528,23 @@ async function extDlSetupStart(){
   finally{ loadExtDlStatus(); loadExtTasks(); }
 }
 
+async function extDlUseMitm(){
+  if(!confirm('把系统代理改为 127.0.0.1:2023（下载器）？\n'
+      + '运行期间全机流量会经过下载器；停止下载器或退出工具时会自动还原原代理。')) return;
+  const btn = document.getElementById('extDlUseMitmBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '设置中…'; }
+  try{
+    const j = await (await fetch(API + '/ext/proxy/use-mitm', {method:'POST'})).json();
+    notify(j.msg || (j.code === 200 ? '系统代理已指向本机' : '设置失败'),
+           j.code === 200 ? 'success' : 'error');
+  }catch(e){ notify('请求失败：' + e.message, 'error'); }
+  finally{ loadExtDlStatus(); }
+}
+
 async function extDlStop(){
   if(!confirm('停止 wx_channels_download？（微信里注入的下载按钮会随之失效）')) return;
+  const sb = document.getElementById('extDlStopBtn');
+  if(sb){ sb.disabled = true; sb.textContent = '停止中…（若弹出管理员确认请点「是」）'; }
   try{
     const j = await (await fetch(API + '/ext/stop', {method:'POST'})).json();
     notify(j.code === 200 ? '下载器已停止' : (j.msg || '停止失败'), j.code === 200 ? 'success' : 'error');
@@ -1992,8 +2608,7 @@ async function extDlDownload(){
     else{
       notify('已开始直链下载；完成后自动转写（失败见 app.log）');
       const dir = (j.data || {}).downloadDir || '';
-      const wd = document.getElementById('watchDir');
-      if(dir && wd) wd.value = dir;
+      if(dir) setStoragePath(dir);
       loadWatchStatus();
       if(window.showView) setTimeout(()=>loadExtDlStatus(), 1200);
     }
@@ -2054,8 +2669,11 @@ function qqWatchLoop(){
       if(!top || !top.taskId) return;
       if(window._qqvLastSeen===undefined){
         window._qqvLastSeen=top.taskId;
-        // 页面还没有结果时，自动接管监听目录最近的一条（刷新/重进也能看到视频与截图）
-        if(document.querySelector('#vresult > .card')) return;
+        // 只有“这一条任务的结果已经在页面上”才跳过；页面里是别的旧结果时，
+        // 新落地的视频仍要自动渲染（否则首轮轮询会把新任务当成旧结果漏掉）
+        const already=[...document.querySelectorAll('#vresult [data-task-id]')]
+          .some(el=>el.dataset.taskId===top.taskId);
+        if(already) return;
       }else if(top.taskId===window._qqvLastSeen || top.taskId===window._qqvHandled){
         return;
       }
@@ -2067,7 +2685,7 @@ function qqWatchLoop(){
       window._qqvRunning=true;
       pollTaskEntry(activeTasks['video|qqvideo']);
     }catch(e){}
-  }, 4000);
+  }, 2000);
 }
 
 // ---------- 最近导入的本地视频 / 文件（历史记录，持久显示） ----------
@@ -2076,6 +2694,7 @@ async function loadLocalVideos(){
   if(!el) return;
   try{
     const j = await (await fetch(API + '/history/list?page=1&pageSize=30')).json();
+    if(j.code !== 200){ el.textContent = '加载失败：' + (j.msg || '接口异常'); return; }
     const items = (((j.data||{}).list)||[]).filter(it => it.task_type==='file_transcript').slice(0,6);
     if(!items.length){ el.textContent = '还没有导入的本地视频/文件（监听目录导入后会自动出现在这里）'; return; }
     el.innerHTML = items.map(it=>{
@@ -2084,12 +2703,14 @@ async function loadLocalVideos(){
       const url = '#/video/qqvideo?task=' + encodeURIComponent(it.task_id);
       const st = it.status==='SUCCESS'?'成功':it.status==='FAILURE'?'失败':'进行中';
       const cls = it.status==='SUCCESS'?'ok':it.status==='FAILURE'?'fail':'run';
-      return '<div class="row" style="align-items:center;gap:.5rem;margin:.35rem 0">'
-        + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escapeHtml(title)+'">'+(audio?'🎧':'🎬')+' '+escapeHtml(title)+'</span>'
-        + '<span class="status-tag '+cls+'">'+st+'</span>'
-        + '<span style="font-size:.72rem;color:var(--muted)">'+escapeHtml((it.created_at||'').slice(5,16))+'</span>'
-        + '<a class="btn sm ghost" style="text-decoration:none" href="'+url+'" target="_blank" rel="noopener">打开结果</a>'
-        + '</div>';
+      return '<a class="qq-row" href="'+url+'" target="_blank" rel="noopener">'
+        + '<span class="qr-ico">'+(audio?'🎧':'🎬')+'</span>'
+        + '<span class="qr-main">'
+        +   '<span class="qr-title" title="'+escapeHtml(title)+'">'+escapeHtml(title)+'</span>'
+        +   '<span class="qr-sub"><span class="'+cls+'">'+st+'</span><span>'+escapeHtml((it.created_at||'').slice(5,16))+'</span></span>'
+        + '</span>'
+        + '<span class="qr-act"><span class="btn sm ghost">打开结果</span></span>'
+        + '</a>';
     }).join('');
   }catch(e){ el.textContent = '加载失败：' + e.message; }
 }
@@ -2127,7 +2748,7 @@ function watchUsageHtml(u){
         + '，已处理 ' + (u.processedFiles||0) + ' 个 / ' + mb(u.processedBytes) + '</div>';
   if(Number(u.processedBytes||0) > 0){
     h += '<div style="margin-top:.35rem"><button type="button" class="btn sm ghost" data-clean-processed>清理已处理原片</button>'
-      +  '<span style="color:var(--muted);font-size:.74rem;margin-left:.4rem">只删 processed/ 里的原片，文案与历史记录不受影响</span></div>';
+      +  '<span style="color:var(--muted);font-size:.74rem;margin-left:.4rem">删除从视频号提取的视频（文案与历史记录不受影响）</span></div>';
   }
   return h;
 }
@@ -2138,26 +2759,29 @@ async function loadWatchStatus(){
     const j = await (await fetch(API + '/watch/status')).json();
     const d = j.data || {};
     if(d.enabled){
-      const wd = document.getElementById('watchDir');
-      if(wd && !wd.value) wd.value = d.dir || '';
+      setStoragePath(d.dir);
       box.innerHTML = '● 正在监听：<code>' + escapeHtml(d.dir) + '</code>'
         + '（每 ' + (d.interval || 5) + ' 秒扫描，已导入 ' + (d.processed || 0) + ' 个）'
         + watchUsageHtml(d.usage)
-        + watchFailedHtml(d.failed)
-        + watchRecentHtml(d.recent);
+        + watchFailedHtml(d.failed);
       box.style.color = '#059669';
     }else{
-      // 未启用 → 输入框预填下载器的下载目录，点「开始监听」即可（留空也会自动用它）
+      // 未启用 → 显示下载器的下载目录；高级选项里的手动目录留空即可自动用它
       fetch(API + '/ext/status').then(r=>r.json()).then(s=>{
-        const dd = (s.data||{}).download_dir || '';
-        const wd = document.getElementById('watchDir');
-        if(dd && wd && !wd.value) wd.value = dd;
-      }).catch(()=>{});
-      box.innerHTML = '未启用。输入框已预填下载器的下载目录，点「开始监听」即可（留空提交也行）。'
-        + watchRecentHtml(d.recent, '上次导入（点击打开结果）：');
+        setStoragePath((s.data || {}).download_dir || '');
+      }).catch(()=>{ setStoragePath(''); });
+      box.innerHTML = '未启用。可在上方「开始提取」自动开启监听，或在下方高级选项里手动指定目录。';
       box.style.color = '';
     }
   }catch(e){ box.textContent = '状态获取失败'; }
+}
+
+function setStoragePath(p){
+  const el = document.getElementById('storagePathText');
+  if(!el) return;
+  const v = String(p || '').trim();
+  el.textContent = v || '未获取到（启动下载器或开始提取后显示）';
+  el.title = v;
 }
 
 async function startWatch(){
@@ -2166,7 +2790,7 @@ async function startWatch(){
   try{
     const r = await fetch(API + '/watch/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({dir: dir, model:'medium', interval:5, moveDone:true})
+      body: JSON.stringify({dir: dir, model:'medium', interval:2, moveDone:true})
     });
     const j = await r.json();
     if(!r.ok){ notify(j.msg || '启动失败', 'error'); return; }
@@ -2227,19 +2851,26 @@ function renderCorrection(taskId, mode){
     c.original = el ? el.textContent : '';
   }
   const body = mode === 'original' ? c.original : c.corrected;
+  // 一处都没改（也无需规范标点）时，纠错版与原文一字不差——再把整段文本渲染出来，
+  // 就是同一段话在页面上出现的第三遍，还会多出"看原文/看纠错版"的无效切换。
+  const nothing = !c.changes.length && !c.punct;
   const changes = c.changes.map(x => '<li><code>' + escapeHtml(x.from) + '</code> → <code>'
       + escapeHtml(x.to) + '</code></li>').join('');
   box.innerHTML = '<div class="card" style="margin-top:1rem;border-color:#ddd6fe">'
     + '<div class="meta"><span class="pill platform">AI 纠错 · ' + escapeHtml(c.model || 'LLM') + '</span>'
-    + '<span class="pill dur">实质修改 ' + c.changes.length + ' 处</span>'
+    + '<span class="pill dur">' + (nothing ? '无改动' : '实质修改 ' + c.changes.length + ' 处') + '</span>'
     + (c.punct ? '<span class="pill status">标点规范化 ' + c.punct + ' 处</span>' : '')
-    + '<button class="copy" onclick="switchCorr(\'' + taskId + '\',\'original\')">看原文</button>'
-    + '<button class="copy" onclick="switchCorr(\'' + taskId + '\',\'corrected\')">看纠错版</button>'
-    + '<button class="copy" onclick="exportCorrected(\'' + taskId + '\')">导出纠错版</button>'
+    + (nothing ? '' :
+        '<button class="copy" onclick="switchCorr(\'' + taskId + '\',\'original\')">看原文</button>'
+        + '<button class="copy" onclick="switchCorr(\'' + taskId + '\',\'corrected\')">看纠错版</button>'
+        + '<button class="copy" onclick="exportCorrected(\'' + taskId + '\')">导出纠错版</button>')
     + '</div>'
-    + '<div class="section-label">' + (mode === 'original' ? '原文（ASR 结果）' : '纠错版') + '</div>'
-    + '<div class="transcript" style="max-height:340px">' + escapeHtml(body) + '</div>'
-    + (c.changes.length ? '<div class="section-label">改动清单</div><ul class="corr-list">' + changes + '</ul>' : '')
+    + (nothing
+        ? '<div style="color:var(--muted);font-size:.82rem;margin-top:.35rem">'
+          + '已检查，与上方正文完全一致，无需改动。</div>'
+        : '<div class="section-label">' + (mode === 'original' ? '原文（ASR 结果）' : '纠错版') + '</div>'
+          + '<div class="transcript" style="max-height:340px">' + escapeHtml(body) + '</div>'
+          + (c.changes.length ? '<div class="section-label">改动清单</div><ul class="corr-list">' + changes + '</ul>' : ''))
     + '</div>';
 }
 
@@ -2392,6 +3023,206 @@ async function runExport(){
 function quickDemo(){
   window.open(urlFor('video_text','douyin'), '_blank');
 }
+
+// ---------- 设置页：可视化编辑常用配置（保存即生效）----------
+window.loadSettings = async function(){
+  const box = document.getElementById('settingsForm');
+  if(!box) return;
+  let data;
+  try{
+    const r = await fetch(API+'/settings', {credentials:'same-origin'});
+    const j = await r.json();
+    if(!r.ok || j.code!==200) throw new Error(j.msg||('HTTP '+r.status));
+    data = j.data;
+  }catch(e){
+    box.innerHTML = '<div class="card" style="color:#b91c1c">读取配置失败：'
+      + escapeHtml(String(e.message||e)) + '</div>';
+    return;
+  }
+  const groups = (data && data.groups) || [];
+  if(!groups.length){ box.innerHTML='<div class="card">没有可配置项</div>'; return; }
+
+  let html = '';
+  for(const g of groups){
+    html += '<div class="card"><div class="section-label">'+escapeHtml(g.group)+'</div>';
+    for(const it of g.items){
+      const id = 'set_'+it.key;
+      let ctl;
+      if(it.kind.indexOf('enum:') === 0){
+        // 枚举一律用下拉框，避免手填出错
+        const opts = it.kind.slice(5).split(',');
+        ctl = '<select id="'+id+'" data-key="'+it.key+'" style="width:100%;padding:.8rem 1rem;'
+          + 'border:1px solid var(--border);border-radius:12px;font-size:.92rem;'
+          + 'background:#fdfbff;font-family:inherit;">'
+          + opts.map(function(o){
+              return '<option value="'+escapeHtml(o)+'"'
+                + (o === it.value ? ' selected' : '') + '>'
+                + escapeHtml(o) + '</option>';
+            }).join('')
+          + '</select>';
+      }else if(it.kind === 'proxy_list'){
+        // 出口池：一条一行，配到几条就加几行（比塞进一个大文本框直观得多）
+        const vals = (it.value||'').split(/[,\s]+/).filter(Boolean);
+        if(!vals.length) vals.push('');
+        ctl = '<div class="px-list" data-key="'+it.key+'">'
+          + vals.map(function(v){
+              return '<div class="px-row" style="display:flex;gap:.5rem;margin-bottom:.55rem">'
+                + '<input type="text" class="px-input" style="flex:1" '
+                + 'value="'+escapeHtml(v)+'" placeholder="host:port 或 http://host:port">'
+                + '<button type="button" class="btn sm ghost px-del" title="删除这条">✕</button>'
+                + '</div>';
+            }).join('')
+          + '<button type="button" class="btn sm ghost px-add">+ 添加代理</button>'
+          + '</div>';
+      }else{
+        ctl = '<input type="text" id="'+id+'" data-key="'+it.key+'" '
+          + 'value="'+escapeHtml(it.value||'')+'" '
+          + 'placeholder="' + (it.kind==='int' ? '留空=用默认值' : '留空=直连') + '">';
+      }
+      html += '<div style="margin-top:1rem">'
+        + '<div style="font-size:.86rem;font-weight:600;margin-bottom:.35rem">'
+        + escapeHtml(it.label) + '</div>'
+        + ctl
+        + '<div class="input-hint">'
+        + '<span class="hint-note">' + escapeHtml(it.hint||'') + '</span>'
+        + ' <code>' + escapeHtml(it.key) + '</code>'
+        + '</div>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+  html += '<div class="card">'
+    + '<div class="row">'
+    + '<button class="btn" id="settingsSave">保存并立即生效</button>'
+    + '<button class="btn sm ghost" id="settingsCheck">测试出口连通性</button>'
+    + '</div>'
+    + '<div class="input-hint">'
+    + '<span id="settingsMsg" style="font-weight:600"></span>'
+    + '<span id="settingsCheckMsg"></span>'
+    + '</div>'
+    + '<div class="input-hint" style="margin-top:.8rem">'
+    + '<span class="hint-note">保存后同时写回 .env，重启也保留</span><br>'
+    + '<span class="hint-note">出口池填多条时，代码会为每个账号<b>稳定绑定</b>一条出口；冷却只罚被限的那一条</span><br>'
+    + '<span class="hint-note">媒体下载出口留空 = 直连，省流量（按流量计费务必留空）</span><br>'
+    + '<span class="hint-note">改完可到 <a href="#/accounts">账号</a> 页点「验证」再次确认</span>'
+    + '</div></div>';
+  box.innerHTML = html;
+
+  // 出口池：每行一个输入框，「+ 添加代理」加一行，✕ 删一行
+  function bindPxDel(delBtn){
+    delBtn.onclick = function(){
+      const row = delBtn.closest('.px-row');
+      if(row) row.remove();
+    };
+  }
+  box.querySelectorAll('.px-del').forEach(bindPxDel);
+  box.querySelectorAll('.px-add').forEach(function(addBtn){
+    addBtn.onclick = function(){
+      const wrap = addBtn.parentElement;
+      const row = document.createElement('div');
+      row.className = 'px-row';
+      row.style.cssText = 'display:flex;gap:.5rem;margin-bottom:.55rem';
+      row.innerHTML = '<input type="text" class="px-input" style="flex:1" '
+        + 'placeholder="host:port 或 http://host:port">'
+        + '<button type="button" class="btn sm ghost px-del" title="删除这条">✕</button>';
+      wrap.insertBefore(row, addBtn);
+      bindPxDel(row.querySelector('.px-del'));
+      const inp = row.querySelector('.px-input');
+      if(inp) inp.focus();
+    };
+  });
+
+  const btn = document.getElementById('settingsSave');
+  btn.onclick = async function(){
+    const values = {};
+    box.querySelectorAll('[data-key]').forEach(function(el){
+      if(el.classList.contains('px-list')){
+        // 出口池：把每一行拼回逗号分隔
+        const arr = [];
+        el.querySelectorAll('.px-input').forEach(function(i){
+          const v = (i.value || '').trim();
+          if(v) arr.push(v);
+        });
+        values[el.dataset.key] = arr.join(',');
+      }else{
+        values[el.dataset.key] = el.value || '';
+      }
+    });
+    btn.disabled = true;
+    const msg = document.getElementById('settingsMsg');
+    msg.style.color = 'var(--muted)';
+    msg.textContent = '保存中…';
+    try{
+      const r = await fetch(API+'/settings', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({values: values})
+      });
+      const j = await r.json();
+      if(j.code === 200){
+        msg.style.color = '#047857';
+        msg.textContent = '✓ 已保存并立即生效';
+      }else{
+        const errs = Object.keys((j.data && j.data.errors) || {})
+          .map(function(k){ return k + '：' + j.data.errors[k]; }).join('；');
+        msg.style.color = '#b91c1c';
+        msg.textContent = '部分未生效：' + (errs || j.msg || '未知错误');
+      }
+    }catch(e){
+      msg.style.color = '#b91c1c';
+      msg.textContent = '保存失败：' + (e.message || e);
+    }finally{
+      btn.disabled = false;
+    }
+  };
+
+  // 「测试出口连通性」：填完代理点一下就知道通不通，不用拿任务试错
+  const chk = document.getElementById('settingsCheck');
+  chk.onclick = async function(){
+    const m = document.getElementById('settingsCheckMsg');
+    chk.disabled = true;
+    m.style.color = 'var(--muted)';
+    m.textContent = '正在测试…（每个出口最多 8 秒）';
+    try{
+      const r = await fetch(API+'/proxy/check', {
+        method:'POST', credentials:'same-origin'
+      });
+      const j = await r.json();
+      const data = j.data || {};
+      const lines = [];
+      Object.keys(data).forEach(function(k){
+        const v = data[k] || {};
+        if(v.direct){
+          lines.push(k + '：未配置代理（直连）');
+          return;
+        }
+        lines.push(k + '：' + (v.detail || ''));
+        (v.items || []).forEach(function(it){
+          lines.push('   ' + (it.ok ? '✓' : '✗') + '  ' + (it.proxy || '?')
+            + '   ' + (it.detail || '')
+            + (it.ms ? '   ' + it.ms + 'ms' : ''));
+        });
+      });
+      m.style.whiteSpace = 'pre-line';
+      m.style.textAlign = 'left';
+      m.style.color = (j.code === 200) ? '#047857' : '#b91c1c';
+      m.textContent = lines.join('\n') || '没有配置任何代理（全部直连）';
+      // 后端查出的问题（轮换型出口 / 境外 IP / 机房 IP）逐条弹窗
+      const probs = Array.isArray(j.problems) ? j.problems : [];
+      if (probs.length) {
+        alert('代理配置有问题：\n\n'
+          + probs.map(function(s, i){ return (i + 1) + '. ' + s; }).join('\n\n')
+          + '\n\n提示：这类问题不会表现为"连不上"，但会让'
+          + '「一号一 IP 稳定绑定」和「冷却按出口隔离」失效。');
+      }
+    }catch(e){
+      m.style.color = '#b91c1c';
+      m.textContent = '测试失败：' + (e.message || e);
+    }finally{
+      chk.disabled = false;
+    }
+  };
+};
 
 document.addEventListener('DOMContentLoaded', init);
 </script>

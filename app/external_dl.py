@@ -213,7 +213,8 @@ def probe() -> dict:
         if not ok_any:
             out["error"] = "无法连接（下载器未启动或端口不是 2022）"
     except Exception as exc:  # noqa: BLE001
-        out["error"] = f"{type(exc).__name__}: {exc}"
+        logger.warning("下载器状态探测异常: %s", exc)
+        out["error"] = "无法连接（下载器未启动或端口不是 2022）"
     return out
 
 
@@ -226,7 +227,11 @@ def list_video_channel_tasks(limit: int = 6) -> dict:
     try:
         data = _get(f"/api/v1/download_task/list?page=1&page_size={max(20, limit * 3)}")
     except Exception as exc:  # noqa: BLE001
-        return {"items": [], "online": False, "error": f"{type(exc).__name__}: {exc}"}
+        # 原始异常只进日志：页面上出现的应是可读原因，而不是
+        # "URLError: <urlopen error [WinError 10061] ...>" 这种半中半英的实现细节
+        logger.warning("读取下载器任务失败: %s", exc)
+        return {"items": [], "online": False,
+                "error": "无法连接（下载器未启动或端口不是 2022）"}
 
     status_text = {0: "等待中", 1: "准备中", 2: "下载中", 3: "已暂停",
                    4: "合并中", 5: "已完成", 6: "失败", 7: "已取消"}
@@ -798,10 +803,44 @@ def _proxy_set(enable: int, server: str) -> None:
                 winreg.SetValueEx(k, "ProxyServer", 0, winreg.REG_SZ, server)
     except Exception as exc:  # noqa: BLE001
         logger.warning("写系统代理失败: %s", exc)
+    # 只改注册表，部分应用（含微信）不会立刻重读；发一次 WinINet 变更通知
+    try:
+        import ctypes
+
+        wininet = ctypes.windll.wininet
+        wininet.InternetSetOptionW(None, 39, None, 0)  # INTERNET_OPTION_SETTINGS_CHANGED
+        wininet.InternetSetOptionW(None, 37, None, 0)  # INTERNET_OPTION_REFRESH
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _proxy_backup_path() -> Path:
     return INSTALL_DIR / ".proxy_backup.json"
+
+
+def _write_proxy_backup_if_needed() -> None:
+    """把代理改成本机 MITM 前，备份用户原始代理（只备份一次，保留最早值）。
+
+    - 已有有效备份 → 不动（可能上次还没还原）；
+    - 备份损坏/为空 → 重新写；
+    - 当前已指向 MITM → 不备份（否则会把 MITM 自己当"原始值"）。
+    """
+    backup = _proxy_backup_path()
+    try:
+        if backup.is_file():
+            try:
+                data = json.loads(backup.read_text(encoding="utf-8") or "{}")
+                if "enable" in data or "server" in data:
+                    return
+            except Exception:  # noqa: BLE001
+                pass
+        en, sv = _proxy_get()
+        if _proxy_points_to_mitm(sv):
+            return
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        backup.write_text(json.dumps({"enable": en, "server": sv}), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("备份系统代理失败: %s", exc)
 
 
 def _launch_plain(exe: Path) -> bool:
@@ -827,14 +866,27 @@ def _launch_plain(exe: Path) -> bool:
         return False
 
 
+def _api_ready(timeout: float = 1.0) -> bool:
+    """轻量就绪检查：只打 /api/status。
+
+    启动过程中端口可能已经打开、但 API 还没 ready；用完整 probe() 会连打 4 个
+    接口（每个 5 秒超时），这正是"点启动后很久才弹 UAC"的主因。
+    """
+    try:
+        _get("/api/status", timeout=timeout)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _wait_online(wait_s: float) -> bool:
     import time
 
     deadline = time.time() + wait_s
     while time.time() < deadline:
-        time.sleep(2)
-        if probe().get("online"):
+        if _api_ready(1.0):
             return True
+        time.sleep(0.4)
     return False
 
 
@@ -854,23 +906,22 @@ def start(wait_s: float = 60.0, allow_elevate: bool = True) -> dict:
     if not IS_WINDOWS:
         return {"started": False, "platform_supported": False,
                 "error": _WINDOWS_ONLY_HINT}
-    if probe().get("online"):
+    if _api_ready(1.0):
         return {"started": True, "already": True}
     exe = exe_path()
     if exe is None:
         return {"started": False, "error": "未安装",
                 "hint": "请先安装（页面上点「一键安装并启动」，或 POST /ext/setup）"}
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        backup = _proxy_backup_path()
-        if not backup.exists():  # 保留最早一次的原始值（上次可能没恢复成功）
-            en, sv = _proxy_get()
-            backup.write_text(json.dumps({"enable": en, "server": sv}), encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("备份系统代理失败: %s", exc)
+    _write_proxy_backup_if_needed()
 
-    # 1) 免提权启动（常规路径，无 UAC）
-    if _launch_plain(exe) and _wait_online(wait_s):
+    # 1) 免提权启动（常规路径，无 UAC）；只等一小段就转 UAC，
+    #    避免"免提权进程起不来但要干等 60 秒才弹管理员确认框"
+    try:
+        plain_wait_s = min(wait_s, float(os.getenv("TRANSCRIPT_EXT_DL_PLAIN_WAIT", "8") or 8))
+    except Exception:  # noqa: BLE001
+        plain_wait_s = min(wait_s, 8.0)
+    if _launch_plain(exe) and _wait_online(plain_wait_s):
         _mark_started_by_us()
         return {"started": True, "elevated": False, "proxy": proxy_status()}
 
@@ -914,15 +965,19 @@ def stop(wait_s: float = 20.0, allow_elevate: bool = True) -> dict:
     import subprocess
     import time
 
+    killed = False
     try:
-        subprocess.run(["taskkill", "/IM", EXE_NAME, "/F"],
-                       capture_output=True, timeout=20)
+        r = subprocess.run(["taskkill", "/IM", EXE_NAME, "/F"],
+                           capture_output=True, timeout=20)
+        killed = (r.returncode == 0)
     except Exception:  # noqa: BLE001
-        pass
-    deadline = time.time() + 6
-    while time.time() < deadline and _proc_running():
-        time.sleep(1)
-    if _proc_running():  # 大概率是管理员进程 → UAC 兜底
+        killed = False
+    if killed:
+        # 正常杀掉后进程通常立刻消失；只等很短，避免失败时白等
+        deadline = time.time() + 2
+        while time.time() < deadline and _proc_running():
+            time.sleep(0.3)
+    if _proc_running():  # 没权限/杀不掉 → 立刻走 UAC 兜底
         if not allow_elevate:
             # 进程杀不掉也要把代理还原掉：否则机器留在"代理指向已停止的 MITM"
             return {"stopped": False, "error": "进程以管理员运行，未提权时无法停止",
@@ -972,6 +1027,22 @@ def proxy_status() -> dict:
             "active_mitm": bool(en) and mitm, "mitm_port": PROXY_PORT}
 
 
+def use_mitm_proxy() -> dict:
+    """一键把系统代理指向本机 MITM（注入下载按钮的必要条件）。
+
+    会先备份用户原始代理；停止下载器/退出服务时由 _restore_proxy() 还原。
+    """
+    if not IS_WINDOWS:
+        return {"ok": False, "error": _WINDOWS_ONLY_HINT}
+    _write_proxy_backup_if_needed()
+    _proxy_set(1, f"127.0.0.1:{PROXY_PORT}")
+    st = proxy_status()
+    ok = bool(st.get("is_mitm"))
+    return {"ok": ok, "proxy": st,
+            "detail": (f"系统代理已指向本机 127.0.0.1:{PROXY_PORT}" if ok
+                       else "写入后校验未通过，请检查系统代理设置")}
+
+
 def sanity_check_proxy() -> dict:
     """启动体检：代理指向本机 MITM 但下载器不在线 → 还原/关闭。
 
@@ -987,6 +1058,48 @@ def sanity_check_proxy() -> dict:
     logger.warning("启动体检：系统代理指向本机 MITM(%s) 但下载器不在线 → %s",
                    st["server"] or f"127.0.0.1:{PROXY_PORT}", detail)
     return {"action": "restored", "proxy": proxy_status(), "detail": detail}
+
+
+def proxy_watchdog_loop(interval: float = 60.0, consecutive_misses: int = 3) -> None:
+    """常驻看门狗：下载器崩溃/被强杀后，系统代理仍指向本机 MITM → 自动还原。
+
+    2026-11-02 修复：原来只在服务启动那一刻做一次 sanity_check_proxy（main.py 里那个
+    一次性线程），服务常驻期间下载器死掉就没人管 → 全机流量一直指向无人监听的
+    127.0.0.1:2023，用户只会看到"突然全都上不了网"。这里每 interval 秒复查一次：
+
+    - 代理没指向 MITM  → 什么都不做；
+    - 进程都不在了      → 直接判定离线（不用等）；
+    - 进程还在但 API 连续 consecutive_misses 次探不到 → 才算掉线，避免下载繁忙时误还原。
+    """
+    import time
+
+    if not IS_WINDOWS:
+        return
+    misses = 0
+    logger.info("代理看门狗已启动（每 %ss 复查一次，连续 %s 次探不到才还原）",
+                int(interval), consecutive_misses)
+    while True:
+        time.sleep(max(5.0, float(interval)))
+        try:
+            st = proxy_status()
+            if not (st["enable"] and st["is_mitm"]):
+                misses = 0
+                continue
+            alive = _proc_running()
+            if alive and probe().get("online"):
+                misses = 0
+                continue
+            if alive:
+                misses += 1
+                if misses < max(1, int(consecutive_misses)):
+                    continue
+            detail = _restore_proxy() or "系统代理已关闭"
+            logger.warning("代理看门狗：系统代理指向本机 MITM(%s) 但下载器已不在线（%s）→ %s",
+                           st["server"] or f"127.0.0.1:{PROXY_PORT}",
+                           f"进程在，连续 {misses} 次探不到" if alive else "进程已退出", detail)
+            misses = 0
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("代理看门狗本轮异常（忽略）: %s", exc)
 
 
 def restore_proxy() -> dict:

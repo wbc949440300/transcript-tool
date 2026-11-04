@@ -23,6 +23,13 @@ EDGE_PATHS = [
 
 _STEALTH_ARGS = ["--disable-blink-features=AutomationControlled"]
 
+# 默认 UA 兜底：headless 模式下 Chromium 自带的 UA 是
+# "...HeadlessChrome/xxx..."，等于向全网广播"我是无头浏览器"。
+# 调用方没传 user_agent 时用这个覆盖（2026-11-02 实测发现：
+# xiaohongshu 的调用点没传 UA，实际发出的就是 HeadlessChrome）。
+_DEFAULT_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
 
 def profile_dir_for(name: str) -> Path:
     """按用途取 profile 目录（可用 TRANSCRIPT_BROWSER_PROFILE_<NAME> 覆盖）。"""
@@ -71,6 +78,9 @@ def open_profile(headless: bool = True, profile_dir=None, *,
     }
     if user_agent:
         ctx_kwargs["user_agent"] = user_agent
+    else:
+        # 不传就兜底，避免把 HeadlessChrome 泄漏给目标站
+        ctx_kwargs["user_agent"] = _DEFAULT_UA
     if proxy:
         ctx_kwargs["proxy"] = {"server": proxy}
 
@@ -86,7 +96,16 @@ def open_profile(headless: bool = True, profile_dir=None, *,
         ctx = pw.chromium.launch_persistent_context(**kwargs)
         return pw, ctx, True
 
-    browser = pw.chromium.launch(headless=headless, args=args)
+    # 非持久路径也要用真实浏览器内核。
+    # ★ 2026-11-02 修：Playwright ≥1.49 在 `headless=True` 且未指定 channel 时，
+    #   启动的是 **chromium_headless_shell**（精简无头内核）—— 这是最容易被平台
+    #   识别为自动化的特征之一。上面持久路径指定了 channel="msedge"（真实 Edge），
+    #   而"干净上下文重试"这条没指定，等于**重试时换成了一个更好被识别的浏览器**，
+    #   所以"重试仍被拦"是必然的。
+    launch_kwargs: dict = {"headless": headless, "args": args}
+    if any(Path(p).exists() for p in EDGE_PATHS):
+        launch_kwargs["channel"] = "msedge"
+    browser = pw.chromium.launch(**launch_kwargs)
     ctx = browser.new_context(**ctx_kwargs)
     return pw, ctx, True
 

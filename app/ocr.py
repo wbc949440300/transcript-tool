@@ -78,3 +78,37 @@ def ocr_image(source: BytesOrPath) -> str:
     # 去掉纯文本行之间的多余空行
     cleaned = [ln.strip() for ln in out_lines if ln and ln.strip()]
     return "\n".join(cleaned)
+
+
+def warmup() -> bool:
+    """预热 RapidOCR 引擎：首次推理要做 ONNX 会话/图优化，实测比后续慢数倍。
+
+    关键：用**带文字**的图，而不是纯白图——纯白图不会真正跑识别模型，
+    服务重启后第一条“密集文字”视频仍会慢（实测 6 秒视频 OCR 要 2 分钟）。
+    """
+    try:
+        import numpy as np
+
+        engine = _get_engine()
+        img = None
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            im = Image.new("RGB", (480, 420), "white")
+            d = ImageDraw.Draw(im)
+            try:
+                font = ImageFont.truetype("arial.ttf", 28)
+            except Exception:  # noqa: BLE001
+                font = ImageFont.load_default()
+            # 多行文字 → 触发检测 + 多条识别（更接近真实视频的密集文字）
+            for i in range(6):
+                d.text((16, 20 + i * 60), f"OCR warmup {i + 1} 1234567890", fill="black", font=font)
+            img = np.array(im)
+        except Exception:  # noqa: BLE001
+            img = np.full((64, 160, 3), 255, dtype=np.uint8)
+        engine(img)
+        logger.info("RapidOCR 预热完成（含文字识别）")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("RapidOCR 预热失败: %s", exc)
+        return False

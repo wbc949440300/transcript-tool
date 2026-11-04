@@ -485,8 +485,10 @@ python login_cookie.py xiaohongshu --no-reuse  # 强制新开窗口（默认是�
   页面顶部会显示剩余冷却时间
 - **批量限速**：批量任务逐条启动，默认间隔 3s（+ 随机抖动），
   可用 `TRANSCRIPT_BATCH_DELAY` 调整（设 0 关闭，不建议）
-- **域名节流**：默认同域名 800ms 一次，可用 `TRANSCRIPT_THROTTLE_MIN_MS` 调大
+- **域名节流**：默认同域名 **2 秒**一次（`TRANSCRIPT_THROTTLE_MIN_MS=2000`，再叠加 0~50% 随机抖动），可用该变量调大
 - 三条通道已贯通该策略：yt-dlp（`cookiefile`）、抖音（Playwright 注入）、快手（Cookie 头）
+
+> **2026-11-04 匿名边界实测**：抖音详情 / 图集 / 一级评论 / 热榜 / 分享链接 **全部免登录**；只有**关键词搜索**（`status_code=2483`「请先登录」）和**二级评论**需要登录。B站搜索与热搜也是匿名的（访客 `buvid3` + 纯 Python `wbi`）。完整矩阵、风险归属与「还要不要买账号/代理」见 [docs/匿名边界与资源复评-2026-11-04.md](docs/匿名边界与资源复评-2026-11-04.md)。
 
 **建议**：
 1. 公开视频**不要**放 cookie——现有通道已实测可免登录提取（抖音 Playwright、快手分享页、B站 yt-dlp）

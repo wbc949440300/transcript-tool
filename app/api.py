@@ -6,10 +6,12 @@ import json
 import mimetypes
 import os
 import re
+import threading
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -54,6 +56,49 @@ router = APIRouter()
 TMP_DIR = Path("tmp_uploads")
 TMP_DIR.mkdir(exist_ok=True)
 
+def _create_channel_link_task(raw: str, meta: dict):
+    """视频号「链接模式」（2026-11-04）：贴分享链接能拿到正文文案/作者/封面/互动数据，
+    但拿不到视频流（实测 get_feed_info 不返回 h264VideoInfo/h265VideoInfo/videoUrl，
+    且 CDN 直链是密文）→ 直接建成一条 SUCCESS 任务，前端出「链接模式」卡片。
+
+    口播语音转文字仍走原路：微信内播放 → 下载器注入按钮 → 落盘 → 自动入队。
+    """
+    task_id = gen_task_id()
+    desc = (meta.get("description") or "").strip()
+    title = (meta.get("title") or "").strip() or desc[:40] or "视频号作品"
+    task = TaskDetail(
+        taskId=task_id,
+        taskType="videochannel",
+        status=TaskStatus.PENDING,
+        errorMessage="作品内容提取中...",
+        title=title,
+        content=desc,
+        textContent=desc,
+        cover=meta.get("cover") or None,
+        platform="视频号",
+        uploader=meta.get("author") or None,
+        webpageUrl=raw,
+        channelMeta={
+            "likes": meta.get("likes") or "",
+            "favCount": meta.get("favCount") or "",
+            "forwardCount": meta.get("forwardCount") or "",
+            "commentCount": meta.get("commentCount") or "",
+            "publishAt": meta.get("publishAt") or "",
+            "location": meta.get("location") or "",
+            "headImg": meta.get("headImg") or "",
+            "tags": meta.get("tags") or [],
+            "shortUri": meta.get("short_uri") or "",
+            "dynamicExportId": meta.get("dynamicExportId") or "",
+            "isVideo": bool(meta.get("isVideo")),
+        },
+    )
+    store.create(task)
+    # update_status 到 SUCCESS 会自动写历史 + 归档文案（文案输出/ 目录）
+    store.update_status(task_id, TaskStatus.SUCCESS, title=title, content=desc,
+                        textContent=desc, cover=task.cover)
+    logger.info("视频号链接模式: %s → %s（正文 %d 字）", raw[:60], title[:20], len(desc))
+    return TaskCreated(data=TaskCreatedData(taskId=task_id))
+
 
 @router.post("/transcript/doTask", response_model=TaskCreated)
 async def create_task(req: CreateTaskRequest):
@@ -79,21 +124,16 @@ async def create_task(req: CreateTaskRequest):
                         video_channel.remember(meta)
             except Exception as exc:  # noqa: BLE001
                 logger.info("视频号元数据获取失败（忽略）: %s", exc)
-            head = ""
             if meta:
-                bits = [b for b in (meta.get("title"), meta.get("author")) if b]
-                if bits:
-                    head = "已取到该视频号作品：" + " / ".join(bits) + "。"
-                if meta.get("cover"):
-                    head += "封面也已记下（文件落地后会自动带上）。"
+                # 链接模式：视频流拿不到，但元数据（正文文案/作者/封面/互动数据）能拿到
+                # → 直接建成一条 SUCCESS 任务，前端渲染「视频号 · 链接模式」卡片
+                return _create_channel_link_task(raw, meta)
             return JSONResponse(status_code=400, content={
                 "code": 500,
-                "msg": head + "视频号链接不能直接解析，也不能直接提交给下载器 API。"
-                       "请在微信里打开视频号视频并播放，点击下载器注入的下载按钮；"
-                       "文件落到下载目录后本工具会自动转写（标题/作者/封面会按上面记下的填好）。"
-                       "（视频号接口要求视频号页面保持打开，否则会提示“请先初始化客户端 socket 连接”。）"
-                       "也可以抓包导出到「自动监听文件夹」。",
-                "data": meta or None,
+                "msg": "没取到该视频号作品的元数据（接口限流或链接已失效）。视频号链接不能直接解析，"
+                       "也不能直接提交给下载器 API：请在微信里打开视频号视频并播放，点击下载器注入的下载按钮；"
+                       "文件落到下载目录后本工具会自动转写。也可以抓包导出到「自动监听文件夹」。",
+                "data": None,
             })
         return JSONResponse(status_code=400, content={"code": 500, "msg": str(exc), "data": None})
 
@@ -193,8 +233,9 @@ async def ocr_do_task(req: CreateOcrTaskRequest):
     try:
         import urllib.request
         req_ = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with http_opener(media=True).open(req_, timeout=20) as resp:
-            data = resp.read()
+        from .utils import http_get_bytes
+
+        data, _ = http_get_bytes(req_, timeout=20)
         text = ocr_image(data)
         task_id = gen_task_id()
         _save_ocr_history(task_id, req.scene, url, text, TaskStatus.SUCCESS)
@@ -204,10 +245,12 @@ async def ocr_do_task(req: CreateOcrTaskRequest):
         ))
     except Exception as exc:  # noqa: BLE001
         logger.error("OCR URL 失败: %s", exc)
-        return OcrResult(data=OcrResultData(
-            taskId=gen_task_id(), status=TaskStatus.FAILURE, text="",
-            imageUrl=url, scene=req.scene,
-        ), code=500, msg=str(exc))
+        # 与其它接口一致：失败走 HTTP 5xx（body 形状不变，页面照旧能解析出 msg）
+        return JSONResponse(status_code=500, content={
+            "code": 500, "msg": str(exc),
+            "data": {"taskId": gen_task_id(), "status": "FAILURE", "text": "",
+                     "imageUrl": url, "scene": req.scene},
+        })
 
 
 @router.post("/transcript/image/ocr/upload")
@@ -296,8 +339,10 @@ async def history_delete(taskId: Optional[str] = None):
     if not taskId:
         return JSONResponse(status_code=400, content={"code": 500, "msg": "缺少 taskId", "data": None})
     ok = history_store.delete(taskId)
-    return {"code": 200 if ok else 500, "msg": "已删除" if ok else "记录不存在",
-            "data": {"deleted": ok}}
+    if not ok:
+        # 与 /history/detail 一致：记录不存在就 404（删除本身仍是幂等的，前端只看 body）
+        return JSONResponse(status_code=404, content={"code": 500, "msg": "记录不存在", "data": None})
+    return {"code": 200, "msg": "已删除", "data": {"deleted": True}}
 
 
 @router.delete("/history/clear")
@@ -328,10 +373,21 @@ def _open_in_file_manager(path: str) -> None:
 
 
 def _file_response(content: bytes, filename: str, media_type: str) -> Response:
+    """下载响应：HTTP 头只能是 latin-1，中文名必须走 RFC5987 的 filename*。
+
+    2026-11-02 修复：原实现直接 f'filename="{中文名}"'，Starlette 以 latin-1 编码 header
+    抛 UnicodeEncodeError → 归档里凡是中文名的文件下载必 500（归档 84 个文件 71 个含中文，
+    server_err.log 记了 12 处 latin-1 栈）。改成 ASCII 兜底名 + filename*=UTF-8''。
+    """
+    stem, ext = os.path.splitext(filename)
+    ascii_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._") or "download"
+    ascii_name = ascii_stem + ext
+    utf8_name = quote(filename, safe="")
     return Response(
         content=content,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition":
+                 f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{utf8_name}'},
     )
 
 
@@ -423,7 +479,11 @@ async def export_task(taskId: Optional[str] = None, format: str = "txt", lang: s
             [taskId], format, lang, source="corrected" if corrected else "original",
             plain=bool(plain))
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"code": 500, "msg": str(exc), "data": None})
+        # "任务不存在或已删除" 与其它接口的 404 语义对齐；
+        # 其余（格式不支持 / 无任务 / 超批量）仍是 400。此前一律 400，兄弟接口不一致。
+        code = 404 if "任务不存在" in str(exc) else 400
+        return JSONResponse(status_code=code,
+                            content={"code": 500, "msg": str(exc), "data": None})
     return _file_response(content, filename, media_type)
 
 
@@ -436,7 +496,10 @@ async def export_tasks_batch(req: ExportTasksRequest):
             source="corrected" if req.corrected else "original",
             plain=bool(req.plain))
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"code": 500, "msg": str(exc), "data": None})
+        # 同上：全部任务都不存在时按 404，其余按 400
+        code = 404 if "任务不存在" in str(exc) else 400
+        return JSONResponse(status_code=code,
+                            content={"code": 500, "msg": str(exc), "data": None})
     return _file_response(content, filename, media_type)
 
 
@@ -444,12 +507,39 @@ async def export_tasks_batch(req: ExportTasksRequest):
 
 _PROXY_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+
+def _throttle_media(url: str) -> float:
+    """媒体请求（平台 CDN 直链）的节流。
+
+    2026-11-02 补：此前 /media/proxy 与 /media/cover **完全没有限速**，
+    是唯一绕过 throttle 闸门的对外路径——预览/封面刷新一频繁就直接打到 CDN。
+
+    间隔比抓取通道松得多，原因是：
+      · 媒体打的是 CDN，风控强度远低于平台接口
+      · /media/proxy 供播放器流式使用，会连续发 Range 请求；
+        若套用抓取通道的平台级节流（默认 3s），拖动进度条会被卡死
+
+    桶按 **CDN 域名**独立，因此不与同平台的抓取节奏互相阻塞，
+    也不同 CDN 之间互相排队。TRANSCRIPT_MEDIA_THROTTLE_MS=0 可关闭。
+    """
+    try:
+        ms = float(os.getenv("TRANSCRIPT_MEDIA_THROTTLE_MS", "500") or 500)
+    except Exception:  # noqa: BLE001
+        ms = 500.0
+    if ms <= 0:
+        return 0.0
+    from .utils import throttle
+
+    host = (urlparse(url).netloc or "").lower()
+    return throttle(host or "media", min_interval=ms / 1000.0)
 _PLATFORM_REFERER = {
     "抖音": "https://www.douyin.com/",
     "快手": "https://www.kuaishou.com/",
     "小红书": "https://www.xiaohongshu.com/",
     "B站": "https://www.bilibili.com/",
-    "TikTok": "https://www.tiktok.com/",
+    # 视频号：封面走 finder.video.qq.com，要带微信域 Referer 才不 403
+    "视频号": "https://channels.weixin.qq.com/",
 }
 
 
@@ -462,8 +552,52 @@ def _is_audio_only_url(u: str) -> bool:
     return bool(_BILI_AUDIO_URL.search(u or "") or _AUDIO_URL_HINT.search(u or ""))
 
 
-def _resolve_media_url(task_id: str, index: int) -> tuple[Optional[str], str, str]:
-    """从历史记录/内存任务里取媒体直链，返回 (url, referer, platform)。"""
+_CODEC_CACHE: dict = {}
+
+
+def _sniff_codec(url: str, platform: str) -> str:
+    """嗅探直链的视频编码，返回 'h264' / 'hevc' / ''（未知）。
+
+    2026-11-04 补：Chrome 的 H.265 只能**硬件解码** —— 显卡/驱动不支持时，
+    <video> 会表现为「进度条照走、画面冻在第一帧」（时间、音频都正常），
+    而 canPlayType 还会返回 "probably" 骗人。抖音同一作品常常同时给
+    hevc 与 h264 两套直链，所以预览可以退回 h264 那档。
+
+    只取前 256KB 找 mp4 的 sample entry 四字码（avc1 / hvc1），不整段下载；
+    结果按直链缓存在进程内（直链本身几小时就过期，够用）。
+    """
+    if url in _CODEC_CACHE:
+        return _CODEC_CACHE[url]
+    codec = ""
+    try:
+        ua = "Mozilla/5.0" if platform == "B站" else _PROXY_UA
+        headers = {"User-Agent": ua, "Accept": "*/*", "Range": "bytes=0-262143"}
+        referer = _PLATFORM_REFERER.get(platform, "")
+        if referer:
+            headers["Referer"] = referer
+        _throttle_media(url)
+        with http_opener(media=True).open(
+                urllib.request.Request(url, headers=headers), timeout=15) as resp:
+            head = resp.read(262144)
+        if b"avc1" in head or b"avc3" in head:
+            codec = "h264"
+        elif b"hvc1" in head or b"hev1" in head:
+            codec = "hevc"
+    except Exception as exc:  # noqa: BLE001
+        logger.info("编码嗅探失败（按未知处理）: %s", exc)
+    if len(_CODEC_CACHE) > 500:
+        _CODEC_CACHE.clear()
+    _CODEC_CACHE[url] = codec
+    return codec
+
+
+def _media_all_urls(task_id: str) -> tuple[list[str], str]:
+    """该任务的**全部候选直链**（首选在前）+ 平台名。
+
+    ★ 2026-11-03 新增：抖音会给多条 CDN 直链，同一时刻可用性并不一致 ——
+    实测同一任务，取第一次 502（21 秒后断链），取第二次 1.6MB/s 正常。
+    只认一条会让播放器反复卡死，所以要能把整份候选列表交给调用方轮着试。
+    """
     urls: list[str] = []
     platform = ""
     row = history_store.get(task_id)
@@ -481,12 +615,16 @@ def _resolve_media_url(task_id: str, index: int) -> tuple[Optional[str], str, st
             urls = [u for u in (getattr(t, "videoUrlList", None) or []) if u]
             if not urls and getattr(t, "videoUrl", None):
                 urls = [t.videoUrl]
-    if not urls:
-        return None, "", ""
     # 兼容旧记录：跳过纯音频，避免预览黑屏（新记录的 videoUrlList 已只收视频流）
     filtered = [u for u in urls if not _is_audio_only_url(u)]
-    if filtered:
-        urls = filtered
+    return (filtered or urls), platform
+
+
+def _resolve_media_url(task_id: str, index: int) -> tuple[Optional[str], str, str]:
+    """从历史记录/内存任务里取媒体直链，返回 (url, referer, platform)。"""
+    urls, platform = _media_all_urls(task_id)
+    if not urls:
+        return None, "", ""
     idx = max(0, min(index, len(urls) - 1))
     return urls[idx], _PLATFORM_REFERER.get(platform, ""), platform
 
@@ -513,36 +651,72 @@ def _serve_local_media(task_id: str, name: str, download: int = 0):
 
 
 @router.get("/media/proxy")
-def media_proxy(request: Request, taskId: str = "", index: int = 0, download: int = 0):
+def media_proxy(request: Request, taskId: str = "", index: int = 0, download: int = 0,
+                codec: str = ""):
     """代取视频/音频流：服务端带上 Referer/UA 拉流，浏览器即可预览与保存。
 
     支持 Range 透传（可拖动进度条）；download=1 时附带附件头直接下载。
     videoUrlList 里的 file:// 项表示任务目录里的本地预览视频，直接走本地文件。
+    codec=h264 时优先挑 h264 那条直链（前端播放无画面时自动带上来，见 index.html）。
     """
     if not taskId:
         return JSONResponse(status_code=400, content={"code": 500, "msg": "缺少 taskId", "data": None})
-    url, referer, platform = _resolve_media_url(taskId, index)
-    if not url:
+    urls, platform = _media_all_urls(taskId)
+    if not urls:
         return JSONResponse(status_code=404, content={"code": 500, "msg": "该任务没有可用的媒体直链", "data": None})
-    if url.startswith("file://"):
-        return _serve_local_media(taskId, url[len("file://"):], download=download)
+    if urls[0].startswith("file://"):
+        return _serve_local_media(taskId, urls[0][len("file://"):], download=download)
+
+    # 前端发现「播放但画面不动」时会带 codec=h264 重来：把 h264 那条提到最前。
+    # 老记录（选档逻辑修复前生成的）h264 可能排在很后面，所以这里按顺序嗅探整份
+    # 候选（最多 8 条，找到第一条命中的就停）；每条只读 256KB，仅在回退路径上跑。
+    if codec and codec.strip().lower() in ("h264", "hevc"):
+        want = codec.strip().lower()
+        hit = ""
+        for cand in urls[:8]:
+            if _sniff_codec(cand, platform) == want:
+                hit = cand
+                break
+        if hit and hit != urls[0]:
+            logger.info("媒体代理: 按 codec=%s 把第 %d 条提到最前", want, urls.index(hit) + 1)
+            urls = [hit] + [u for u in urls if u != hit]
 
     # B站 CDN 对桌面 Chrome UA + Range 会直接断连（实测），媒体请求用简单 UA
     ua = "Mozilla/5.0" if platform == "B站" else _PROXY_UA
     headers = {"User-Agent": ua, "Accept": "*/*"}
+    referer = _PLATFORM_REFERER.get(platform, "")
     if referer:
         headers["Referer"] = referer
     rng = request.headers.get("range")
     if rng:
         headers["Range"] = rng
-    try:
-        upstream = http_opener(media=True).open(
-            urllib.request.Request(url, headers=headers), timeout=30)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("媒体代理拉流失败: %s", exc)
+
+    # 从 index 开始逐条试：抖音给的多条直链同一时刻可用性并不一致（实测同一任务
+    # 一条 502 断链、另一条 1.6MB/s 正常），只认一条会让播放器反复卡死。
+    n = len(urls)
+    order = [urls[(max(0, index) + i) % n] for i in range(n)]
+    upstream = None
+    last_exc = None
+    url = order[0] if order else ""
+    for i, cand in enumerate(order, 1):
+        _throttle_media(cand)
+        try:
+            upstream = http_opener(media=True).open(
+                urllib.request.Request(cand, headers=headers), timeout=30)
+            url = cand                      # 后面补 Content-Type 时要用命中的那条
+            if i > 1:
+                logger.info("媒体代理：前 %d 条直链不通，换到第 %d 条成功", i - 1, i)
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning("媒体直链 %d/%d 拉流失败，换下一条: %s", i, n, exc)
+    if upstream is None:
         return JSONResponse(
             status_code=502,
-            content={"code": 500, "msg": f"媒体源暂不可用（可能已过期）：{exc}", "data": None})
+            content={"code": 500,
+                     "msg": f"媒体源暂不可用（{n} 条直链都试过，可能已过期；"
+                            f"点上方「刷新直链」可重新取）：{last_exc}",
+                     "data": None})
 
     out: dict = {"Accept-Ranges": upstream.headers.get("Accept-Ranges", "bytes")}
     for h in ("Content-Length", "Content-Range"):
@@ -587,16 +761,123 @@ def media_cover(taskId: str = ""):
     ref = _PLATFORM_REFERER.get(platform)
     if ref:
         headers["Referer"] = ref
+    _throttle_media(cover)
     try:
-        upstream = http_opener(media=True).open(
-            urllib.request.Request(cover, headers=headers), timeout=20)
-        data = upstream.read()
-        media_type = upstream.headers.get("Content-Type") or "image/jpeg"
+        from .utils import http_get_bytes
+
+        data, hdrs = http_get_bytes(urllib.request.Request(cover, headers=headers), timeout=20)
+        media_type = hdrs.get("Content-Type") or "image/jpeg"
     except Exception as exc:  # noqa: BLE001
         logger.warning("封面代理失败: %s", exc)
         return JSONResponse(status_code=502, content={"code": 500, "msg": f"封面获取失败：{exc}", "data": None})
     return Response(content=data, media_type=media_type,
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+def _task_duration(task_id: str) -> float | None:
+    """从历史/内存任务里取时长（抽帧要按它均匀取样）。"""
+    dur = None
+    row = history_store.get(task_id)
+    if row:
+        dur = row.get("duration")
+    if dur is None:
+        t = store.get(task_id)
+        if t is not None:
+            dur = getattr(t, "duration", None)
+    try:
+        d = float(dur)
+        return d if d > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+_THUMB_LOCKS: dict = {}
+_THUMB_LOCKS_GUARD = threading.Lock()
+_THUMB_FAIL: dict = {}
+_THUMB_FAIL_COOLDOWN = 60.0
+
+
+def _thumb_lock(task_id: str) -> threading.Lock:
+    """每个任务一把抽帧锁（同一任务并发请求必须串行，不同任务互不影响）。"""
+    with _THUMB_LOCKS_GUARD:
+        lk = _THUMB_LOCKS.get(task_id)
+        if lk is None:
+            if len(_THUMB_LOCKS) > 300:
+                _THUMB_LOCKS.clear()
+            lk = _THUMB_LOCKS[task_id] = threading.Lock()
+        return lk
+
+
+@router.get("/media/frame")
+def media_frame(taskId: str = "", i: int = 0, n: int = 5):
+    """结果页「视频截图」用的**服务端抽帧**。
+
+    ★ 2026-11-03 改：截图以前是浏览器另开一个 video 元素、seek 到 5 个时间点再
+    drawImage —— 那要求"第二路流能及时缓冲到目标位置"，而抖音/B站 CDN 对同一条
+    直链的并发流本来就慢，实测就是 seek 超时、截图全黑（失败率高到没法用）。
+    现在改由服务端 ffmpeg 直接从 URL 抽帧，浏览器只负责 <img> 显示，
+    彻底绕开"浏览器要实时缓冲"这条路。
+
+    抽到的帧缓存在任务目录的 `_thumbs/` 下：第 1 次请求抽全部 n 张，
+    后续按序号直接命中缓存，不会重复抽（也不会重复打 CDN）。
+    """
+    if not taskId:
+        return JSONResponse(status_code=400,
+                            content={"code": 500, "msg": "缺少 taskId", "data": None})
+    i = max(0, min(int(i or 0), 11))
+    n = max(1, min(int(n or 5), 12))
+    tdir = Path(os.getenv("TRANSCRIPT_TASKS_DIR", "tasks")) / taskId
+    cache = tdir / "_thumbs"
+    target = cache / f"thumb_{i + 1:03d}.jpg"
+
+    if not target.is_file():
+        # ★ 2026-11-04 修「截图不出来 / 只出一两张」：
+        #   前端一次并发发 5 个 /media/frame，原先每个请求都各自清空 _thumbs 再重抽，
+        #   互相踩踏 —— 实测冷缓存下 5 个并发：1 个 62 秒成功、4 个 200 秒超时，
+        #   最后磁盘上一张不剩。现在同一 taskId 串行，后到的等锁后直接命中缓存。
+        with _thumb_lock(taskId):
+            if target.is_file():
+                pass                        # 等锁期间别人已经抽好，直接走缓存
+            elif time.time() - _THUMB_FAIL.get(taskId, 0.0) < _THUMB_FAIL_COOLDOWN:
+                return JSONResponse(status_code=502, content={
+                    "code": 500,
+                    "msg": "抽帧刚失败过，60 秒内不再重试（直链多半已过期，点「刷新直链」）",
+                    "data": None})
+            else:
+                urls, platform = _media_all_urls(taskId)
+                if not urls:
+                    return JSONResponse(status_code=404, content={
+                        "code": 500, "msg": "该任务没有可用的媒体直链", "data": None})
+                from .frame_ocr import grab_thumbnails
+
+                dur = _task_duration(taskId)
+                referer = _PLATFORM_REFERER.get(platform, "")
+                frames: list = []
+                for u in urls[:3]:        # 同 /media/proxy 的理由：一条不通就换下一条
+                    if u.startswith("file://"):
+                        u = u[len("file://"):]
+                    frames = grab_thumbnails(u, dur, referer, n=n, out_dir=cache)
+                    if frames:
+                        break
+                if not frames:
+                    _THUMB_FAIL[taskId] = time.time()
+                    if len(_THUMB_FAIL) > 500:
+                        _THUMB_FAIL.clear()
+                    return JSONResponse(status_code=502, content={
+                        "code": 500,
+                        "msg": "抽帧失败：这条直链当前拉不动（可能已过期或被限速），"
+                               "点「刷新直链」后再试", "data": None})
+                _THUMB_FAIL.pop(taskId, None)
+
+    if not target.is_file():
+        # 抽到了但张数不足（视频比预期短）→ 退回最后一张，别让前端空着
+        have = sorted(cache.glob("thumb_*.jpg"))
+        if not have:
+            return JSONResponse(status_code=404,
+                                content={"code": 500, "msg": "没有抽到帧", "data": None})
+        target = have[-1]
+    return FileResponse(target, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ---------- 刷新媒体直链（抖音/快手的直链几小时过期） ----------
@@ -621,12 +902,28 @@ async def refresh_media(req: RefreshMediaRequest):
                             content={"code": 500, "msg": "该记录没有原始链接，无法刷新直链", "data": None})
 
     def _refresh() -> dict:
-        from .extractor import _douyin_stream_urls
+        from .extractor import _douyin_stream_urls, _extract_info, _pick_video_urls
         from .platforms import adapter_for
 
         adapter = adapter_for(src_url)
+
+        # ★ 2026-11-03 加：B站没有平台专用 fetch，走 yt-dlp 重取一遍信息 ——
+        # 故意的：与首次提取用**同一条路径**，直链形状才一致（同样只收视频流，
+        # 混进纯音频会让预览黑屏）。B站 CDN 的直链同样几小时过期，预览靠它续命。
+        if adapter.key == "bilibili":
+            info = _extract_info(src_url)
+            urls = _pick_video_urls(info.get("formats") or [])
+            if not urls:
+                u = info.get("url") or ""
+                if u and str(info.get("vcodec") or "").lower() not in ("", "none"):
+                    urls = [u]
+            dur = info.get("duration")
+            return {"platform": adapter.label, "urls": (urls or [])[:8],
+                    "title": info.get("title"), "cover": info.get("thumbnail"),
+                    "duration": (float(dur) if isinstance(dur, (int, float)) else None)}
+
         if adapter.key not in ("douyin", "kuaishou") or adapter.fetch is None:
-            raise LinkError("该平台不需要刷新直链（只有抖音/快手的直链会几小时过期）")
+            raise LinkError("该平台不需要刷新直链（抖音/快手/B站的直链会几小时过期）")
         d = adapter.fetch(src_url)
         if adapter.key == "douyin":
             _asr, urls = _douyin_stream_urls(d)
@@ -847,6 +1144,24 @@ async def ext_proxy_restore():
     return {"code": 200, "msg": res.get("detail") or "已处理", "data": res}
 
 
+@router.post("/ext/proxy/use-mitm")
+async def ext_proxy_use_mitm():
+    """一键把系统代理指向本机 MITM（微信里注入下载按钮的必要条件）。
+
+    会先备份用户原始代理；停止下载器/退出服务时自动还原。
+    """
+    import asyncio
+
+    from . import external_dl
+
+    res = await asyncio.to_thread(external_dl.use_mitm_proxy)
+    ok = bool(res.get("ok"))
+    return JSONResponse(status_code=200 if ok else 500, content={
+        "code": 200 if ok else 500,
+        "msg": res.get("detail") or res.get("error") or ("已指向本机" if ok else "设置失败"),
+        "data": res})
+
+
 @router.post("/ext/download")
 async def ext_download(req: ExternalDownloadRequest):
     """按“绝对媒体 URL”下载并自动把下载目录纳入监听。
@@ -953,10 +1268,16 @@ async def proxy_check_now():
         return out or {"_none": {"ok": True, "detail": "没有任何平台配置了代理（全部直连）"}}
 
     data = await asyncio.to_thread(_run)
-    bad = [k for k, v in data.items() if isinstance(v, dict) and not v.get("ok", True)]
-    return {"code": 200 if not bad else 500,
-            "msg": "全部出口可用" if not bad else f"有出口不通：{', '.join(bad)}",
-            "data": data}
+    # 汇总所有平台的"能用但有问题"（轮换型/境外/机房），供前端弹窗逐条展示
+    problems: list[str] = []
+    for k, v in data.items():
+        if isinstance(v, dict):
+            for p in (v.get("problems") or []):
+                problems.append(f"[{k}] {p}")
+    msg = ("全部出口可用" if not problems
+           else f"发现 {len(problems)} 个问题，详见弹窗")
+    return {"code": 200 if not problems else 500,
+            "msg": msg, "data": data, "problems": problems}
 
 
 @router.get("/health")
@@ -988,7 +1309,7 @@ async def ai_status():
 class WatchStartRequest(BaseModel):
     dir: str = ""   # 留空 = 自动使用下载器的下载目录
     model: str = "medium"
-    interval: float = 5.0
+    interval: float = 2.0
     moveDone: bool = True
 
 
@@ -1179,6 +1500,23 @@ async def login_check(req: LoginRequest):
             "data": res}
 
 
+@router.post("/login/logout")
+async def login_logout(req: LoginRequest):
+    """退出登录：删除该账号的 cookie 文件与浏览器 profile。
+
+    删的是登录态，不是历史记录；重新登录即可恢复。
+    （2026-11-03 新增：此前只有「登录/验证」，被标记或废弃的号没法从界面清掉。）
+    """
+    import asyncio
+
+    from . import account_login
+
+    res = await asyncio.to_thread(account_login.logout_account, req.platform, req.account)
+    return {"code": 200 if res.get("ok") else 500,
+            "msg": res.get("msg") or ("已退出登录" if res.get("ok") else "退出失败"),
+            "data": res}
+
+
 @router.post("/login/open-dir")
 async def login_open_dir():
     """在资源管理器里打开 cookies 目录。"""
@@ -1189,3 +1527,90 @@ async def login_open_dir():
     d = await asyncio.to_thread(account_login.open_cookies_dir)
     await asyncio.to_thread(_open_in_file_manager, d)
     return {"code": 200, "msg": "已打开 cookies 文件夹", "data": {"dir": d}}
+
+
+# ---------- 设置：可视化编辑 .env（改完立即生效，不必重启）----------
+
+@router.get("/settings")
+async def get_settings():
+    """白名单内的可配置项，按分组返回当前**实际生效**的值。"""
+    from . import settings_api
+
+    return {"code": 200, "msg": "操作成功",
+            "data": {"groups": settings_api.read_settings()}}
+
+
+@router.post("/settings")
+async def post_settings(payload: dict):
+    """保存设置。
+
+    只接受 `settings_api.SCHEMA` 白名单里的键；其余键直接忽略（不做任何写入）。
+    校验失败的项会逐条返回原因，校验通过的项**照常生效**，不会因为一项错就全丢。
+    """
+    import asyncio
+
+    from . import settings_api
+
+    values = (payload or {}).get("values") or {}
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=400, detail="values 必须是对象")
+    out = await asyncio.to_thread(settings_api.save_settings, values)
+    if out.get("errors"):
+        return {"code": 400, "msg": "部分配置未生效（见 errors）", "data": out}
+    return {"code": 200, "msg": "已保存并立即生效", "data": out}
+
+
+# ---------- 发现：B站匿名搜索 / 抖音一级评论（免账号、免代理）----------
+#
+# 2026-11-04 实测：B站搜索与抖音一级评论都能在"零 cookie、零代理"下拿到，
+# 差别只在姿势 —— B站纯 HTTP（buvid3 + wbi 签名），抖音必须借页面上下文发请求
+# （纯 Python 会被 TLS/JS 指纹挡成空 body）。这两条通道用来补"关键词发现"和
+# "评论区素材"，正文提取仍走原来的 yt-dlp / 浏览器 + ASR 链路。
+
+@router.get("/discover/bilibili/search")
+async def discover_bilibili_search(keyword: str = "", page: int = 1, pageSize: int = 20):
+    """B站关键词搜索（访客态，20 条/页）。返回的 url 可直接喂给批量提取。"""
+    from . import bilibili
+
+    try:
+        data = await asyncio.to_thread(bilibili.search_videos, keyword, page, pageSize)
+    except bilibili.BiliError as exc:
+        return JSONResponse(status_code=400,
+                            content={"code": 500, "msg": str(exc), "data": None})
+    return {"code": 200, "msg": "操作成功", "data": data}
+
+
+@router.get("/discover/bilibili/hot")
+async def discover_bilibili_hot(limit: int = 10):
+    """B站热搜词（访客态）。"""
+    from . import bilibili
+
+    try:
+        data = await asyncio.to_thread(bilibili.hot_search, limit)
+    except bilibili.BiliError as exc:
+        return JSONResponse(status_code=400,
+                            content={"code": 500, "msg": str(exc), "data": None})
+    return {"code": 200, "msg": "操作成功", "data": data}
+
+
+class DouyinCommentsRequest(BaseModel):
+    url: str
+    maxCount: int = 100
+    pageSize: int = 20
+
+
+@router.post("/discover/douyin/comments")
+async def discover_douyin_comments(req: DouyinCommentsRequest):
+    """抖音一级评论（访客态）：起一次浏览器、页面内翻页取评论。"""
+    from .douyin_comments import CommentError, fetch_comments
+
+    try:
+        data = await asyncio.to_thread(fetch_comments, req.url, req.maxCount, req.pageSize)
+    except CommentError as exc:
+        return JSONResponse(status_code=400,
+                            content={"code": 500, "msg": str(exc), "data": None})
+    except Exception as exc:  # noqa: BLE001  浏览器起不来等
+        logger.warning("抖音评论采集失败: %s", exc)
+        return JSONResponse(status_code=500,
+                            content={"code": 500, "msg": "采集失败：%s" % exc, "data": None})
+    return {"code": 200, "msg": "操作成功", "data": data}

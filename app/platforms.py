@@ -24,7 +24,7 @@ class PlatformAdapter:
     needs_login: bool = False     # 是否可能用到登录态（决定是否允许 cookie 升级）
     supports_images: bool = False # 是否支持图文/图集作品
     fingerprint: str = "none"     # "profile" = 用持久浏览器 profile
-    frame_ocr_default: bool = False  # 平台通常没有字幕文件 → 默认开画面文字 OCR
+    frame_ocr_default: bool = False  # 是否默认勾选画面文字 OCR（2026-11-03 起全部平台默认关）
     cooldown_base: int = 1800     # 首次风控冷却秒数（之后按 strikes 翻倍）
     daily_budget: int = 0         # 0 = 用 TRANSCRIPT_DAILY_BUDGET
 
@@ -35,7 +35,7 @@ ADAPTERS: tuple[PlatformAdapter, ...] = (
         hosts=("douyin.com", "iesdouyin.com"),
         run_kind="douyin", fetch=douyin.fetch_douyin,
         needs_login=True, supports_images=True, fingerprint="profile",
-        frame_ocr_default=True,
+        frame_ocr_default=False,
         cooldown_base=1800, daily_budget=150,
     ),
     PlatformAdapter(
@@ -43,14 +43,14 @@ ADAPTERS: tuple[PlatformAdapter, ...] = (
         hosts=("kuaishou.com", "gifshow.com"),
         run_kind="kuaishou", fetch=kuaishou.fetch_kuaishou,
         needs_login=False, supports_images=True, fingerprint="none",
-        frame_ocr_default=True,
+        frame_ocr_default=False,
         cooldown_base=900, daily_budget=200,
     ),
     PlatformAdapter(
         key="xiaohongshu", label="小红书",
         hosts=("xiaohongshu.com", "xhslink.com"),
         needs_login=True, supports_images=True, fingerprint="profile",
-        frame_ocr_default=True,
+        frame_ocr_default=False,
         cooldown_base=900, daily_budget=100,
     ),
     PlatformAdapter(
@@ -58,12 +58,6 @@ ADAPTERS: tuple[PlatformAdapter, ...] = (
         hosts=("bilibili.com", "b23.tv"),
         needs_login=True,
         cooldown_base=900, daily_budget=200,
-    ),
-    PlatformAdapter(
-        key="tiktok", label="TikTok",
-        hosts=("tiktok.com",),
-        needs_login=True,
-        cooldown_base=900, daily_budget=100,
     ),
 )
 
@@ -92,9 +86,12 @@ def adapter_by_key(key: str) -> PlatformAdapter:
 def frame_ocr_default_for(url: str) -> bool:
     """该 URL 是否默认开启画面文字 OCR。
 
-    没有平台字幕文件的平台（抖音/快手/小红书）默认开：实测画面里的硬字幕
-    比 ASR 准得多（用户实测："肥水不流外人田"被 ASR 听成"非说也没有留到外人天地里去"）。
-    B站/TikTok 等可能有 CC 字幕的，保持默认关，避免白等一次抽帧 OCR。
+    ★ 2026-11-03 起**所有平台默认关**：抽帧 + OCR 会让每条任务多花几十秒到几分钟，
+    按需求改为"需要时在页面上手动勾选"。默认值仍按平台存放在
+    adapter.frame_ocr_default 上，将来要按平台恢复默认开，改那一处即可。
+
+    注意：**抖音图集（图文）的 OCR 不受这个开关影响** —— 那是唯一的内容来源，
+    走的是 extractor 的 _ocr_images（app/extractor.py:1089），始终执行。
     """
     return bool(adapter_for(url).frame_ocr_default)
 

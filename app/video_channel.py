@@ -1,4 +1,10 @@
-"""视频号（微信）元数据：用 finder-preview 的 get_feed_info 拿标题/作者/封面。
+"""视频号（微信）元数据：用 finder-preview 的 get_feed_info 拿标题/作者/封面/正文文案。
+
+2026-11-04「链接模式」：实测证明匿名 get_feed_info 能返回**正文文案、作者、头像、
+封面、互动数据、发布时间、话题标签**（见 F:\新版提取工具 的探针与交接文档），
+唯独**不返回视频播放地址**（h264VideoInfo/h265VideoInfo/videoUrl 都不给，流是加密的）。
+所以贴视频号链接可以直接建成一条 SUCCESS 任务展示这些信息，口播语音转文字仍走
+「微信内下载 → 落盘 → 自动入队」。
 
 背景：视频号没有可抓的网页接口，视频流只能靠抓包/下载器；但**元数据**有一个公开预览
 接口可用（交接文档实测）：
@@ -70,17 +76,77 @@ def _walk_find(obj, keys: tuple[str, ...], depth: int = 0):
     return None
 
 
+def _fmt_time(ts) -> str:
+    """createtime（秒级时间戳）→ 'YYYY-MM-DD HH:MM'；异常返回空串。"""
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(int(ts)))
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def tags_from_text(text: str) -> list[str]:
+    """从正文里提话题标签：视频号写法是 '#DeepSeek #Super-agent'（无收尾 #）。"""
+    out: list[str] = []
+    for m in re.findall(r"#([^#\s\n]{1,24})", text or ""):
+        t = m.strip(" #")
+        if t and t not in out:
+            out.append(t)
+    return out[:12]
+
+
 def parse_feed_info(payload: dict) -> dict:
-    """从 get_feed_info 的响应里取 标题/作者/封面/点赞（取不到就留空）。"""
+    """从 get_feed_info 的响应里取元数据（取不到就留空）。
+
+    2026-11-04 扩成「链接模式」：除了标题/作者/封面，还取**正文文案**、作者头像、
+    发布信息、互动数据、话题标签、作品 ID（dynamicExportId）—— 贴链接就能直接
+    给用户看（视频流拿不到，见模块 docstring 与交接文档实测）。
+    """
     if not isinstance(payload, dict):
         return {}
-    title = _walk_find(payload, ("desc", "title", "objectDesc", "feedDesc", "content"))
-    author = _walk_find(payload, ("nickname", "authorName", "username", "nickName"))
-    cover = _walk_find(payload, ("coverUrl", "cover_url", "coverImgUrl", "thumbUrl", "cover"))
-    likes = _walk_find(payload, ("likeCount", "like_count", "likes", "favCount"))
-    out = {"title": title or "", "author": author or "", "cover": cover or "",
-           "likes": likes or ""}
-    return out if (out["title"] or out["author"] or out["cover"]) else {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    feed = data.get("feedInfo") if isinstance(data.get("feedInfo"), dict) else {}
+    author_obj = data.get("authorInfo") if isinstance(data.get("authorInfo"), dict) else {}
+    scene = data.get("sceneInfo") if isinstance(data.get("sceneInfo"), dict) else {}
+    jump = feed.get("jumpInfo") if isinstance(feed.get("jumpInfo"), dict) else {}
+
+    desc = (feed.get("description") or "").strip()
+    title = (_walk_find(payload, ("desc", "objectDesc", "title", "feedDesc")) or "").strip()
+    if not title and desc:
+        # 视频号的"标题"就是正文第一句（接口不给独立标题字段）
+        title = re.split(r"[。\n！!？?；;]", desc)[0][:40].strip() or desc[:40]
+    author = (author_obj.get("nickname") or "").strip() or (
+        _walk_find(payload, ("nickname", "authorName", "username", "nickName")) or "")
+    cover = (feed.get("coverUrl") or "").strip() or (
+        _walk_find(payload, ("coverUrl", "cover_url", "coverImgUrl", "thumbUrl", "cover")) or "")
+    head = (author_obj.get("headImgUrl") or "").strip()
+
+    def _cnt(*keys) -> str:
+        for k in keys:
+            v = feed.get(k)
+            if v not in (None, ""):
+                return str(v).strip()
+        # 老响应形状（data.object.*，2026-10-31 那版）里数值在别处：兜底再走一遍全树
+        for k in keys:
+            v = _walk_find(payload, (k,))
+            if v:
+                return str(v).strip()
+        return ""
+
+    out = {
+        "title": title, "author": author, "cover": cover,
+        "likes": _cnt("likeCountFmt", "likeCount"),
+        "favCount": _cnt("favCountFmt", "favCount"),
+        "forwardCount": _cnt("forwardCountFmt", "forwardCount"),
+        "commentCount": _cnt("commentCountFmt", "commentCount"),
+        "description": desc,
+        "headImg": head,
+        "location": (jump.get("wording") or "").strip(),
+        "publishAt": _fmt_time(feed.get("createtime")),
+        "dynamicExportId": (scene.get("dynamicExportId") or "").strip(),
+        "isVideo": not bool(feed.get("picInfo")),
+        "tags": tags_from_text(desc),
+    }
+    return out if (out["title"] or out["author"] or out["cover"] or out["description"]) else {}
 
 
 def fetch_feed_info(short_uri: str, timeout: float = 20.0) -> dict:
@@ -96,6 +162,8 @@ def fetch_feed_info(short_uri: str, timeout: float = 20.0) -> dict:
         "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
         "Referer": "https://channels.weixin.qq.com/",
+        # 实测：缺 Origin 时接口返回 401 Unauthorized，补上才 201
+        "Origin": "https://channels.weixin.qq.com",
     })
     throttle("channels.weixin.qq.com")
     try:
@@ -106,8 +174,9 @@ def fetch_feed_info(short_uri: str, timeout: float = 20.0) -> dict:
         return {}
     meta = parse_feed_info(data)
     if meta:
-        logger.info("视频号元数据: 标题=%s 作者=%s 封面=%s",
-                    meta["title"][:20], meta["author"][:12], "有" if meta["cover"] else "无")
+        logger.info("视频号元数据: 标题=%s 作者=%s 封面=%s 正文=%d字",
+                    meta["title"][:20], meta["author"][:12],
+                    "有" if meta["cover"] else "无", len(meta.get("description") or ""))
     return meta
 
 
@@ -141,6 +210,9 @@ def remember(meta: dict) -> None:
         "author": (meta.get("author") or "").strip(),
         "cover": (meta.get("cover") or "").strip(),
         "short_uri": (meta.get("short_uri") or "").strip(),
+        "description": (meta.get("description") or "").strip(),
+        "publishAt": (meta.get("publishAt") or "").strip(),
+        "tags": meta.get("tags") or [],
         "at": time.strftime("%Y-%m-%d %H:%M:%S"),
     })
     try:

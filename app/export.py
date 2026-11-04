@@ -20,12 +20,14 @@ MAX_BATCH = 100
 _LABELS = {
     "zh": {
         "title": "标题", "content": "作品简介/话题", "text": "口播文案（全片语音转写）", "ocr_text": "识别文字",
+        "frame_main": "作者文案", "frame_scene": "画面文字",
         "platform": "平台", "duration": "时长", "uploader": "作者", "url": "来源链接",
         "time": "提取时间", "status": "状态", "type": "类型", "index": "序号",
         "success": "成功", "failure": "失败", "empty": "(无)",
     },
     "en": {
         "title": "Title", "content": "Description", "text": "Transcript", "ocr_text": "OCR Text",
+        "frame_main": "Author Copy", "frame_scene": "On-screen Text",
         "platform": "Platform", "duration": "Duration", "uploader": "Author", "url": "Source URL",
         "time": "Extracted At", "status": "Status", "type": "Type", "index": "No.",
         "success": "Success", "failure": "Failed", "empty": "(empty)",
@@ -72,6 +74,13 @@ def _load_task(task_id: str, source: str = "original") -> Optional[dict]:
     if row:
         if not row.get("segments"):
             row["segments"] = _segments_from_extra(row.get("extra"))
+        try:
+            extra = json.loads(row.get("extra") or "{}") or {}
+        except Exception:  # noqa: BLE001
+            extra = {}
+        row["frame_text"] = extra.get("frameText")
+        row["frame_main_text"] = extra.get("frameMainText")
+        row["frame_scene_text"] = extra.get("frameSceneText")
         # source="corrected" 时用 AI 纠错版覆盖正文（导出用）
         if source == "corrected":
             try:
@@ -93,6 +102,9 @@ def _load_task(task_id: str, source: str = "original") -> Optional[dict]:
         "title": t.title,
         "content": t.content,
         "text_content": t.textContent,
+        "frame_text": getattr(t, "frameText", None),
+        "frame_main_text": getattr(t, "frameMainText", None),
+        "frame_scene_text": getattr(t, "frameSceneText", None),
         "platform": t.platform,
         "duration": t.duration,
         "uploader": t.uploader,
@@ -105,8 +117,18 @@ def _load_task(task_id: str, source: str = "original") -> Optional[dict]:
 
 def _normalize(task: dict, lang: str) -> dict:
     L = _labels(lang)
-    is_ocr = (task.get("task_type") == "image-ocr")
+    body = (task.get("text_content") or "").strip()
+    frame = (task.get("frame_text") or "").strip()
+    frame_main = (task.get("frame_main_text") or "").strip()
+    frame_scene = (task.get("frame_scene_text") or "").strip()
+    # 没有口播时后端会把画面文字顶上当正文（字幕优先），此时正文其实是 OCR 出来的，
+    # 标签不能再写"口播文案（全片语音转写）"——那是误导。
+    body_from_frames = bool(body and frame and "".join(body.split()) == "".join(frame.split()))
+    is_ocr = (task.get("task_type") == "image-ocr") or body_from_frames
     text_label = L["ocr_text"] if is_ocr else L["text"]
+    # 正文已经就是 OCR 全文时不再重复附分组段；否则按来源分开输出
+    if body_from_frames:
+        frame_main = frame_scene = frame = ""
     return {
         "title": task.get("title") or L["empty"],
         "content": task.get("content") or "",
@@ -116,6 +138,9 @@ def _normalize(task: dict, lang: str) -> dict:
             (task.get("error_msg") or "") if task.get("status") != "SUCCESS" else ""
         ),
         "text_label": text_label,
+        "frame_main": frame_main,
+        "frame_scene": frame_scene,
+        "frame_all": frame,
         "platform": task.get("platform") or "",
         "duration": _fmt_duration(task.get("duration")),
         "uploader": task.get("uploader") or "",
@@ -148,6 +173,12 @@ def _build_txt(tasks: list[dict], lang: str) -> bytes:
         if n["content"]:
             lines.append(f"{L['content']}:\n{n['content']}\n")
         lines.append(f"{n['text_label']}:\n{n['text']}")
+        if n["frame_main"]:
+            lines.append(f"{L['frame_main']}:\n{n['frame_main']}\n")
+        if n["frame_scene"]:
+            lines.append(f"{L['frame_scene']}:\n{n['frame_scene']}\n")
+        elif n["frame_all"]:
+            lines.append(f"{L['frame_scene']}:\n{n['frame_all']}\n")
         lines.append("=" * 48)
         blocks.append("\n".join(x for x in lines if x is not None))
     return ("\n\n".join(blocks) + "\n").encode("utf-8")
@@ -182,6 +213,21 @@ def _build_md(tasks: list[dict], lang: str) -> bytes:
         lines.append("")
         lines.append(n["text"] or L["empty"])
         lines.append("")
+        if n["frame_main"]:
+            lines.append(f"## {L['frame_main']}")
+            lines.append("")
+            lines.append(n["frame_main"])
+            lines.append("")
+        if n["frame_scene"]:
+            lines.append(f"## {L['frame_scene']}")
+            lines.append("")
+            lines.append(n["frame_scene"])
+            lines.append("")
+        elif n["frame_all"]:
+            lines.append(f"## {L['frame_scene']}")
+            lines.append("")
+            lines.append(n["frame_all"])
+            lines.append("")
         parts.append("\n".join(lines))
     return ("\n\n---\n\n".join(parts) + "\n").encode("utf-8")
 
@@ -221,6 +267,15 @@ def _build_docx(tasks: list[dict], lang: str) -> bytes:
             doc.add_paragraph(n["content"])
         doc.add_heading(n["text_label"], level=2)
         doc.add_paragraph(n["text"] or L["empty"])
+        if n["frame_main"]:
+            doc.add_heading(L["frame_main"], level=2)
+            doc.add_paragraph(n["frame_main"])
+        if n["frame_scene"]:
+            doc.add_heading(L["frame_scene"], level=2)
+            doc.add_paragraph(n["frame_scene"])
+        elif n["frame_all"]:
+            doc.add_heading(L["frame_scene"], level=2)
+            doc.add_paragraph(n["frame_all"])
 
         if idx < len(tasks):
             doc.add_page_break()
@@ -253,10 +308,17 @@ def _build_xlsx(tasks: list[dict], lang: str) -> bytes:
 
     for idx, task in enumerate(tasks, 1):
         n = _normalize(task, lang)
-        ws.append([
+        values = [
             idx, n["type"], n["status"], n["platform"], n["title"], n["uploader"],
             n["duration"], n["content"], n["text"], n["url"], n["time"],
-        ])
+        ]
+        row = ws.max_row + 1
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            # 公式注入防护（2026-11-02）：标题/正文/作者来自第三方内容，以 = 开头的字符串会被
+            # openpyxl 标成公式（data_type='f'），导出的表格一打开就执行。这里强制按纯文本写。
+            if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")):
+                cell.data_type = "s"
 
     widths = [6, 12, 8, 10, 42, 16, 8, 46, 60, 40, 20]
     for i, w in enumerate(widths, 1):

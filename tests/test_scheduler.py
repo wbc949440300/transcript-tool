@@ -81,10 +81,12 @@ def test_queue_capacity(monkeypatch):
 
 
 def test_budget_gate_blocks_without_running(monkeypatch, fake_run):
-    monkeypatch.setenv("TRANSCRIPT_TIKTOK_DAILY_BUDGET", "1")
-    risk.reset("tiktok")
-    u1 = "https://www.tiktok.com/@a/video/1"
-    u2 = "https://www.tiktok.com/@a/video/2"
+    # TikTok 通道 2026-11-03 已移除（app/platforms.py 只剩 抖音/快手/小红书/B站/通用），
+    # 用 tiktok 链接会落到"通用"适配器、没有独立预算，这里改用快手这条真实通道。
+    monkeypatch.setenv("TRANSCRIPT_KUAISHOU_DAILY_BUDGET", "1")
+    risk.reset("kuaishou")
+    u1 = "https://www.kuaishou.com/short-video/1"
+    u2 = "https://www.kuaishou.com/short-video/2"
     t1, t2 = _mk(u1), _mk(u2)
     assert scheduler.submit(t1, u1, False, "tiny")
     assert scheduler.submit(t2, u2, False, "tiny")
@@ -94,7 +96,7 @@ def test_budget_gate_blocks_without_running(monkeypatch, fake_run):
     assert t2.status == TaskStatus.FAILURE
     assert "额度" in (t2.errorMessage or "")
     assert u2 not in fake_run, "预算不足时不应真的执行抓取"
-    risk.reset("tiktok")
+    risk.reset("kuaishou")
 
 
 def test_cooldown_gate_blocks_without_running(fake_run):

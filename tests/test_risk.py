@@ -81,18 +81,19 @@ def test_cooldown_legacy_numeric_format():
 
 
 def test_budget_limit_and_reset(monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_TIKTOK_DAILY_BUDGET", "2")
-    risk.reset("tiktok")
-    ok, st = risk.allow("tiktok")
+    # TikTok 已移除，改用小红书覆盖"额度用尽"这条路径
+    monkeypatch.setenv("TRANSCRIPT_XIAOHONGSHU_DAILY_BUDGET", "2")
+    risk.reset("xiaohongshu")
+    ok, st = risk.allow("xiaohongshu")
     assert ok and st["limit"] == 2 and st["used"] == 0
 
-    risk.consume("tiktok")
-    risk.consume("tiktok")
-    ok, st = risk.allow("tiktok")
+    risk.consume("xiaohongshu")
+    risk.consume("xiaohongshu")
+    ok, st = risk.allow("xiaohongshu")
     assert not ok and st["used"] == 2 and st["remaining"] == 0
 
-    risk.reset("tiktok")
-    assert risk.allow("tiktok")[0]
+    risk.reset("xiaohongshu")
+    assert risk.allow("xiaohongshu")[0]
 
 
 def test_budget_unlimited(monkeypatch):
@@ -113,7 +114,7 @@ def test_budget_defaults_come_from_adapter(monkeypatch):
     """
     for key in ("TRANSCRIPT_DAILY_BUDGET", "TRANSCRIPT_DOUYIN_DAILY_BUDGET",
                 "TRANSCRIPT_KUAISHOU_DAILY_BUDGET", "TRANSCRIPT_XIAOHONGSHU_DAILY_BUDGET",
-                "TRANSCRIPT_BILIBILI_DAILY_BUDGET", "TRANSCRIPT_TIKTOK_DAILY_BUDGET"):
+                "TRANSCRIPT_BILIBILI_DAILY_BUDGET"):
         monkeypatch.delenv(key, raising=False)
     assert risk.daily_limit("douyin") == 150
     assert risk.daily_limit("xiaohongshu") == 100

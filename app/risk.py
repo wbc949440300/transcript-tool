@@ -26,7 +26,6 @@ _ENV_ALIAS = {
     "kuaishou": "KUAISHOU",
     "xiaohongshu": "XIAOHONGSHU",
     "bilibili": "BILIBILI",
-    "tiktok": "TIKTOK",
     "default": "DEFAULT",
 }
 
@@ -70,6 +69,16 @@ def daily_limit(platform: str) -> int:
 
     优先级：TRANSCRIPT_<PLATFORM>_DAILY_BUDGET > TRANSCRIPT_DAILY_BUDGET
             > 平台适配器里的默认值（如抖音 150 / 小红书 100）> 200
+
+    ★ **语义（2026-11-02 起）**：上述数值是**单个账号**的日额度，
+    实际上限 = 该值 × 账号池里的账号数（池为空时 ×1，与旧行为完全一致）。
+
+    为什么要乘：账号池轮换换的是 cookie 与出口 IP，容量本就该跟着涨。
+    此前按平台一刀切，25 个抖音号也仍然只能跑 150 条/天 —— 与
+    `账号与代理申报说明.md` 里「单账号 30 条/天 → N 个账号支撑 N×30」的口径冲突。
+
+    想严格对齐申报口径，把 `TRANSCRIPT_DOUYIN_DAILY_BUDGET` 设为 30 即可。
+    设 0 = 该平台不限（不参与乘法）。
     """
     key = (platform or "default").lower()
     alias = _ENV_ALIAS.get(key, key.upper())
@@ -80,13 +89,32 @@ def daily_limit(platform: str) -> int:
         try:
             from .platforms import adapter_by_key
 
-            return max(0, int(adapter_by_key(key).daily_budget or DEFAULT_DAILY_BUDGET))
+            base = max(0, int(adapter_by_key(key).daily_budget or DEFAULT_DAILY_BUDGET))
         except Exception:  # noqa: BLE001
-            return DEFAULT_DAILY_BUDGET
+            base = DEFAULT_DAILY_BUDGET
+    else:
+        try:
+            base = max(0, int(raw))
+        except Exception:  # noqa: BLE001
+            base = DEFAULT_DAILY_BUDGET
+    if base <= 0:
+        return base          # 0 = 不限，不乘
+    return base * _account_slots(key)
+
+
+def _account_slots(platform: str) -> int:
+    """该平台的账号槽位数（账号池里的账号数；没配池就是 1）。
+
+    只数 `cookies/<平台>/account_*.txt`（`utils.list_accounts` 的口径），
+    不含默认那份 `cookies/<平台>.txt` —— 所以没配账号池时返回 1，
+    日预算与旧行为一致，不会因为这次改动而突然放大。
+    """
     try:
-        return max(0, int(raw))
-    except Exception:
-        return DEFAULT_DAILY_BUDGET
+        from .utils import list_accounts
+
+        return max(1, len(list_accounts(platform)))
+    except Exception:  # noqa: BLE001
+        return 1
 
 
 def budget_state(platform: str) -> dict:

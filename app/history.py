@@ -131,6 +131,39 @@ def sweep_orphan_task_files() -> int:
     return removed
 
 
+def sweep_tmp_uploads(max_age_hours: Optional[float] = None) -> int:
+    """清理 tmp_uploads/ 里没人管的陈旧上传副本。
+
+    正常跑完的任务会在 finally 里删掉自己的副本（file_transcribe），但任务被中断 /
+    进程被强杀时副本会留下——没有清理就会一直攒。只在启动时调用。
+    只删"够旧"的（默认 24 小时，`TRANSCRIPT_TMP_KEEP_HOURS` 可调）：监听目录刚冻结
+    进来、还没开跑的文件，以及正在排队的任务，都不会被误删。
+    """
+    tmp_dir = Path("tmp_uploads")
+    if not tmp_dir.is_dir():
+        return 0
+    if max_age_hours is None:
+        try:
+            max_age_hours = float(os.getenv("TRANSCRIPT_TMP_KEEP_HOURS", "24"))
+        except ValueError:
+            max_age_hours = 24.0
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for p in tmp_dir.iterdir():
+        if not p.is_file():
+            continue
+        try:
+            if p.stat().st_mtime > cutoff:
+                continue
+            p.unlink()
+            removed += 1
+        except Exception:  # noqa: BLE001
+            pass
+    if removed:
+        logger.info("启动清理：删除 %d 个陈旧上传副本（tmp_uploads）", removed)
+    return removed
+
+
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_NAME, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -188,6 +221,8 @@ class HistoryStore:
                         json.dumps({
                             "frameText": getattr(task, "frameText", None),
                             "frameBlocks": getattr(task, "frameBlocks", None),
+                            "frameMainText": getattr(task, "frameMainText", None),
+                            "frameSceneText": getattr(task, "frameSceneText", None),
                             "videoUrlList": getattr(task, "videoUrlList", None),
                             "audioUrl": getattr(task, "audioUrl", None),
                             "sourceText": getattr(task, "sourceText", None),
@@ -195,6 +230,7 @@ class HistoryStore:
                             "index": getattr(task, "index", None),
                             "url": getattr(task, "url", None),
                             "segments": getattr(task, "segments", None),
+                            "channelMeta": getattr(task, "channelMeta", None),
                         }, ensure_ascii=False),
                         getattr(task, "createTime", None),
                     ),

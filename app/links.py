@@ -194,6 +194,9 @@ def normalize(raw: str) -> tuple[str, str]:
         raise LinkError(
             "暂不支持 YouTube（已按需求关闭）。"
             "可以先把视频下载到本机，再用「上传文件提取 → 视频转文字」。")
+    # 2026-11-03：按需求移除 TikTok 支持。
     if "tiktok.com" in host:
-        return url, "TikTok"
+        raise LinkError(
+            "暂不支持 TikTok（已按需求移除）。"
+            "可以先把视频下载到本机，再用「上传文件提取 → 视频转文字」。")
     return url, "通用"

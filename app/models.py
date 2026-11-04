@@ -111,7 +111,13 @@ class TaskDetail(BaseModel):
     segments: Optional[list[dict]] = None
     # 画面文字（OCR 识别的视频内嵌文字：硬字幕/说明文字），与口播文案分开
     frameText: Optional[str] = None
-    frameBlocks: Optional[list] = None   # 画面文字的时间块 [{"t": 秒, "text": str}]
+    frameBlocks: Optional[list] = None   # 画面文字的时间块 [{"t": 秒, "text": str, "kind": "main|scene"}]
+    # 画面文字再分两类（2026-11-02）：作者展示的主文案 vs 画面背景/杂字
+    frameMainText: Optional[str] = None
+    frameSceneText: Optional[str] = None
+    # 视频号「链接模式」附加元数据（2026-11-04）：贴链接只能拿到这些，
+    # 视频流拿不到（微信只把播放地址发给客户端）
+    channelMeta: Optional[dict] = None
     # 批量任务附加
     batchId: Optional[str] = None
     index: Optional[int] = None

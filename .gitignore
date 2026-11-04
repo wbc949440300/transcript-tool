@@ -1,5 +1,6 @@
 # 凭据与运行产物
 .env
+.api_token
 cookies/*.txt
 cookies/_browser_profile*/
 cookies/**/account_*.txt
@@ -19,3 +20,9 @@ soak_report*.jsonl
 watch_autostart.json
 watch_dedupe.json
 _test_tasks.json
+
+# 安装包与备份目录
+dist/
+_backup_remove_*/
+cookies/*.bak-*
+cookies/.*_polluted.json

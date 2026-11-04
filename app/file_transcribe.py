@@ -9,10 +9,10 @@ import logging
 import os
 import shutil
 import threading
-import time
 from pathlib import Path
 
 from .models import TaskDetail, TaskStatus
+from .subproc import hidden
 from .task_store import store
 
 logger = logging.getLogger("file_transcribe")
@@ -33,47 +33,87 @@ def _probe_has_stream(path: Path, spec: str) -> bool:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", spec,
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=20,
+            capture_output=True, text=True, timeout=20, **hidden(),
         )
         return spec[0] in (r.stdout or "")
     except Exception:  # noqa: BLE001
         return False
 
 
-def _transcribe_file(path: Path, model_name: str = "tiny", on_progress=None) -> str:
-    # 复用 extractor 的设备探测（GPU 优先，自动回退 CPU）与模型缓存——
-    # 旧实现写死 CPU，24 分钟视频要转半小时（2026-10-30 实测踩坑）
-    # P1：锁也用 extractor 的**全局** ASR 锁 —— 否则"链接任务 + 文件任务"会各拿
-    # 一把锁同时跑两个模型，6GB 显存直接 OOM。
-    from .extractor import _WHISPER_LOCK, _get_model, _pick_device
+_BROWSER_VIDEO_CODECS = {"h264", "vp8", "vp9", "av1"}
 
-    device, compute_type = _pick_device()
-    logger.info("文件转写: 设备=%s compute=%s 模型=%s", device, compute_type, model_name)
-    with _WHISPER_LOCK:
-        model = _get_model(model_name, device, compute_type)
-        segments, _info = model.transcribe(str(path))
-        total_sec = float(getattr(_info, "duration", 0) or 0)
-        t_start = time.time()
-        last_report = 0.0
-        texts: list[str] = []
-        for seg in segments:
-            t = (seg.text or "").strip()
-            if not t:
-                continue
-            texts.append(t)
-            # 长视频（视频号常见 20~30 分钟）要能看到"还要多久"
-            if on_progress and total_sec > 0:
-                now = time.time()
-                if now - last_report >= 5:
-                    last_report = now
-                    done = float(getattr(seg, "end", 0) or 0)
-                    rate = done / max(0.1, now - t_start)
-                    eta = (total_sec - done) / rate if rate > 0 else 0.0
-                    try:
-                        on_progress(done, total_sec, eta)
-                    except Exception:  # noqa: BLE001
-                        pass
-    return "\n".join(texts)
+
+def _video_codec(path: Path) -> str:
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name", "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=20, **hidden(),
+        )
+        return (r.stdout or "").strip().lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _ensure_browser_preview(path: Path) -> Path:
+    """HEVC/H.265 等浏览器不能解码的视频 → 转成 H.264 预览。
+
+    实测 8.7 秒 720x1280 HEVC 转 H.264 仅 0.3 秒；不转的话 Chrome
+    能读出时长但 videoWidth=0，播放器就是纯黑（用户 2026-11-02 反馈）。
+    """
+    import subprocess
+
+    codec = _video_codec(path)
+    if codec in _BROWSER_VIDEO_CODECS or not codec:
+        return path
+    tmp = path.with_name("video_h264.tmp.mp4")
+    out = path.with_name("video_h264.mp4")
+    base = ["ffmpeg", "-y", "-v", "error", "-i", str(path),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
+            "-movflags", "+faststart"]
+    for audio_args in (["-c:a", "copy"], ["-c:a", "aac", "-b:a", "128k"]):
+        try:
+            if tmp.exists():
+                tmp.unlink()
+            r = subprocess.run(base + audio_args + [str(tmp)],
+                               capture_output=True, text=True, timeout=120, **hidden())
+            if r.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 0:
+                target = path if path.suffix.lower() == ".mp4" else out
+                if target.exists() and target != tmp:
+                    target.unlink()
+                tmp.replace(target)
+                logger.info("视频编码 %s 浏览器不支持，已转 H.264 预览: %s", codec, target.name)
+                return target
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("视频转 H.264 失败(%s): %s", audio_args, exc)
+    try:
+        tmp.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+    logger.warning("视频编码 %s 无法转为 H.264，浏览器预览可能黑屏", codec)
+    return path
+
+
+def _transcribe_file(path: Path, model_name: str = "tiny", on_progress=None) -> str:
+    """转写本地文件，复用链接任务同一套 ASR 参数。
+
+    2026-11-02 修：此前直接 `model.transcribe(path)`，等于走 whisper 全默认参数——
+    丢掉了 language="zh"、简体中文 initial_prompt、vad_filter 与
+    condition_on_previous_text=False。后果是上传文件与监视目录（视频号主链路）
+    实测输出繁体、静音段易出幻觉文本。
+
+    现改为委托 extractor._transcribe：
+      · 设备探测、模型缓存、全局 ASR 锁都在它内部（锁不可重复获取，故此处不再加锁）
+      · 语言预检会把明显非中文的音频自动回退到自动识别，不会误伤英文素材
+      · 顺带获得 ffmpeg 16k 单声道 + 高通滤波的音频增强
+    """
+    from .extractor import _transcribe
+
+    logger.info("文件转写: 模型=%s（走 extractor._transcribe 统一参数）", model_name)
+    text, _segs = _transcribe(path, model_name, language="zh", on_progress=on_progress)
+    return text
 
 
 def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name: str,
@@ -109,8 +149,8 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 dest = dest_dir / ("video" + file_path.suffix.lower())
                 shutil.move(str(file_path), str(dest))
-                kept_video = dest
-                task.videoUrl = "file://" + dest.name
+                kept_video = _ensure_browser_preview(dest)
+                task.videoUrl = "file://" + kept_video.name
                 task.videoUrlList = [task.videoUrl]
             except Exception as exc:  # noqa: BLE001
                 logger.warning("保留预览视频失败（不影响转写结果）: %s", exc)
@@ -124,6 +164,9 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
                 fr = extract_frame_text(src)
                 if fr.get("text"):
                     task.frameText = fr["text"]
+                    task.frameBlocks = fr.get("blocks") or []
+                    task.frameMainText = fr.get("main_text") or None
+                    task.frameSceneText = fr.get("scene_text") or None
             except Exception as exc:  # noqa: BLE001
                 logger.warning("画面文字识别失败（不影响转写结果）: %s", exc)
 

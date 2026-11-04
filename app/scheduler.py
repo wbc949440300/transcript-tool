@@ -278,8 +278,8 @@ def _run_job(job: _Job) -> None:
     if not allowed:
         _fail(job.task,
               f"{adapter.label}今日额度已用完（{bstate['used']}/{bstate['limit']} 条）。"
-              "明天自动恢复；可用 TRANSCRIPT_DAILY_BUDGET 或 "
-              f"TRANSCRIPT_{plat.upper()}_DAILY_BUDGET 调整上限。")
+              "明天自动恢复；上限 = 单账号额度 × 账号池账号数，"
+              f"可用 TRANSCRIPT_{plat.upper()}_DAILY_BUDGET 调整单账号额度。")
         return
     risk.consume(plat)
 

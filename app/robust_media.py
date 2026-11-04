@@ -52,7 +52,7 @@ def _referer_for(url: str) -> str:
     """按目标站点生成 Referer（写死 B站会让抖音/小红书等下载被拒）。"""
     u = (url or "").lower()
     for host in ("douyin.com", "iesdouyin.com", "xiaohongshu.com", "xhslink.com",
-                 "kuaishou.com", "bilibili.com", "b23.tv", "tiktok.com"):
+                 "kuaishou.com", "bilibili.com", "b23.tv"):
         if host in u:
             return "https://www." + host.split("/")[0] + "/"
     return ""

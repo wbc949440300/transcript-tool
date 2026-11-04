@@ -26,6 +26,7 @@ from typing import Optional
 from .file_transcribe import is_allowed_ext, start_file_task
 from .image_import import MAX_IMAGES, is_image_ext, start_image_task
 from .models import TaskDetail, TaskStatus
+from .subproc import hidden
 from .task_store import store
 from .utils import gen_task_id
 
@@ -249,7 +250,7 @@ def media_fingerprint(path: Path) -> str:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, **hidden())
         dur = float((r.stdout or "0").strip() or 0)
     except Exception:  # noqa: BLE001
         dur = 0.0
@@ -351,7 +352,7 @@ def _loop(watch_dir: Path, interval: float, model: str, move_done: bool) -> None
     logger.info("监听已停止: %s", watch_dir)
 
 
-def start(watch_dir: str, model: str = "medium", interval: float = 5.0,
+def start(watch_dir: str, model: str = "medium", interval: float = 2.0,
           move_done: bool = True) -> dict:
     """启动监听（重复调用会先停止旧的）。配置会记住，服务重启后自动恢复。"""
     global _thread
@@ -419,7 +420,7 @@ def resume_last() -> dict:
             logger.warning("上次的监听目录不存在，跳过自动恢复: %s", d)
             return status()
         start(d, model=cfg.get("model", "medium"),
-              interval=float(cfg.get("interval", 5)),
+              interval=float(cfg.get("interval", 2)),
               move_done=bool(cfg.get("moveDone", True)))
         logger.info("已恢复上次的监听目录: %s", d)
     except Exception as exc:  # noqa: BLE001
@@ -640,7 +641,7 @@ def autostart_from_env() -> None:
         return
     try:
         model = os.getenv("TRANSCRIPT_WATCH_MODEL", "medium")
-        interval = float(os.getenv("TRANSCRIPT_WATCH_INTERVAL", "5"))
+        interval = float(os.getenv("TRANSCRIPT_WATCH_INTERVAL", "2"))
         move_done = os.getenv("TRANSCRIPT_WATCH_MOVE", "1") not in ("0", "false")
         start(d, model=model, interval=interval, move_done=move_done)
         logger.info("按环境变量自动监听: %s", d)

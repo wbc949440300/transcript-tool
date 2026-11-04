@@ -29,7 +29,6 @@ PLATFORM_DOMAIN = {
     "xiaohongshu": "xiaohongshu.com",
     "kuaishou": "kuaishou.com",
     "bilibili": "bilibili.com",
-    "tiktok": "tiktok.com",
 }
 # 抖音 cookie 里真正决定登录态的几个（缺失只提示，不阻止导入）
 KEY_TOKENS = {
@@ -37,7 +36,6 @@ KEY_TOKENS = {
     "xiaohongshu": ("web_session", "a1", "webId"),
     "kuaishou": ("did", "kuaishou.server.web_st"),
     "bilibili": ("SESSDATA", "bili_jct"),
-    "tiktok": ("sessionid", "sid_tt"),
 }
 
 
@@ -115,7 +113,7 @@ def _collect_sources(targets: list[str]) -> list[Path]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("platform", help="douyin / xiaohongshu / kuaishou / bilibili / tiktok")
+    ap.add_argument("platform", help="douyin / xiaohongshu / kuaishou / bilibili")
     ap.add_argument("targets", nargs="*", help="cookie 文件或目录")
     ap.add_argument("--stdin", action="store_true", help="从标准输入读（每行：文件路径 或 cookie 串）")
     ap.add_argument("--name", default="", help="指定编号（如 account_3），仅单个来源时可用")

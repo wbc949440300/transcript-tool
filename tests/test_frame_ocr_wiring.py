@@ -1,4 +1,4 @@
-"""画面文字 OCR 的接线：三条收尾路径都要跑；默认按平台决定。
+"""画面文字 OCR 的接线：三条收尾路径都要跑；默认一律关（2026-11-03 按需求改）。
 
 背景：旧实现把 OCR 那段代码只放在"通用通道"后面，而抖音/快手是提前 return 的
 专用通道 → 用户在抖音/快手勾了"识别画面文字"也**不会执行**（2026-10-31 修）。
@@ -80,12 +80,18 @@ def test_run_frame_ocr_without_source_is_silent(tmp_path):
 
 
 @pytest.mark.parametrize("url,want", [
-    (DY, True), (KS, True),
-    ("https://www.xiaohongshu.com/explore/abc", True),
-    (BL, False),                                  # B站可能有 CC 字幕，默认关
+    (DY, False), (KS, False),
+    ("https://www.xiaohongshu.com/explore/abc", False),
+    (BL, False),
     ("https://example.com/v/1", False),
 ])
 def test_default_frame_ocr_by_platform(url, want):
+    """★ 2026-11-03 按需求改为**所有平台默认不勾选**。
+
+    抽帧 + OCR 会让每条任务多花几十秒到几分钟，改为"需要时手动勾选"
+    （前端「同时识别画面文字」默认不勾）。平台维度仍保留在
+    adapter.frame_ocr_default 上，将来要按平台恢复默认开，只改 app/platforms.py 那一处。
+    """
     assert frame_ocr_default_for(url) is want
 
 
@@ -175,4 +181,5 @@ def test_api_uses_platform_default_when_unspecified(monkeypatch):
     client.post("/prod-api/transcript/doTask", json={"workUrl": BL}, headers=hdr)
     client.post("/prod-api/transcript/doTask",
                 json={"workUrl": DY, "ocrFrames": False}, headers=hdr)
-    assert seen == [True, False, False]
+    # 请求不带 ocrFrames → 平台默认（抖音现在也是 False，见 2026-11-03 的默认值调整）
+    assert seen == [False, False, False]

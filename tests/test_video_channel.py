@@ -135,3 +135,75 @@ def test_progress_reporter_message():
     _progress_reporter(task)(320.0, 1780.0, 30.0)
     assert "不到 1 分钟" in store.get("prog_1").errorMessage
     assert _fmt_mmss(65) == "1:05"
+
+
+# ---------- 「链接模式」：贴分享链接直接出文案卡片（2026-11-04） ----------
+
+def test_parse_feed_info_link_mode():
+    """真接口响应：拿到正文/作者/头像/互动数据/话题标签；**拿不到视频流字段**。"""
+    payload = {
+        "data": {
+            "feedInfo": {
+                "description": "某条关于 AI 的短视频。#DeepSeek #AI圈瓜",
+                "coverUrl": "https://finder.video.qq.com/251/20304/stodownload?encfilekey=x",
+                "likeCountFmt": "152", "favCountFmt": "1080",
+                "forwardCountFmt": "909", "commentCountFmt": "148",
+                "createtime": 1793600410, "picInfo": [],
+            },
+            "authorInfo": {"nickname": "AI.Easy", "headImgUrl": "https://wx.qlogo.cn/head/0"},
+            "sceneInfo": {"dynamicExportId": "export/UzFfBg", "expiredTime": 1793771671},
+        }
+    }
+    meta = video_channel.parse_feed_info(payload)
+    assert meta["title"].startswith("某条关于 AI 的短视频")
+    assert meta["author"] == "AI.Easy"
+    assert meta["description"] == "某条关于 AI 的短视频。#DeepSeek #AI圈瓜"
+    assert meta["cover"].startswith("https://finder.video.qq.com")
+    assert meta["headImg"].startswith("https://wx.qlogo.cn")
+    assert (meta["likes"], meta["favCount"], meta["forwardCount"], meta["commentCount"]) == \
+           ("152", "1080", "909", "148")
+    assert meta["publishAt"] == "2026-11-02 14:20"
+    assert meta["dynamicExportId"] == "export/UzFfBg"
+    assert meta["isVideo"] is True
+    assert meta["tags"] == ["DeepSeek", "AI圈瓜"]
+    # 视频流字段一律取不到（这是"链接模式"只能给文案的原因）
+    assert "videoUrl" not in meta and "h264VideoInfo" not in meta
+
+
+def test_parse_feed_info_picture_post_is_not_video():
+    payload = {"data": {"feedInfo": {"description": "图集文", "picInfo": [{"url": "x"}]},
+                        "authorInfo": {"nickname": "A"}}}
+    assert video_channel.parse_feed_info(payload)["isVideo"] is False
+
+
+def test_channel_link_task_created_as_success(monkeypatch):
+    """贴链接 → 直接建成 SUCCESS 任务（taskType=videochannel），不启动任何下载。"""
+    from app import api
+    from app.models import TaskCreated
+
+    seen: dict = {}
+    monkeypatch.setattr(api.store, "create",
+                        lambda task: seen.update(task=task))
+    monkeypatch.setattr(api.store, "update_status",
+                        lambda task_id, status, **fields: seen.update(
+                            status=status, fields=fields))
+
+    out = api._create_channel_link_task("https://weixin.qq.com/sph/ANc1wgtZqr", {
+        "title": "某条关于 AI 的短视频", "author": "AI.Easy",
+        "cover": "https://finder.video.qq.com/251/20304/stodownload?encfilekey=x",
+        "description": "某条关于 AI 的短视频。#DeepSeek",
+        "likes": "152", "favCount": "1080", "forwardCount": "909",
+        "commentCount": "148", "publishAt": "2026-11-02 14:20",
+        "location": "天津市", "headImg": "https://wx.qlogo.cn/head/0",
+        "tags": ["DeepSeek"], "short_uri": "ANc1wgtZqr",
+        "dynamicExportId": "export/UzFfBg", "isVideo": True,
+    })
+
+    assert isinstance(out, TaskCreated)
+    task = seen["task"]
+    assert task.taskType == "videochannel" and task.platform == "视频号"
+    assert task.textContent == "某条关于 AI 的短视频。#DeepSeek"
+    assert task.channelMeta["shortUri"] == "ANc1wgtZqr"
+    assert task.channelMeta["tags"] == ["DeepSeek"] and task.channelMeta["isVideo"] is True
+    assert seen["status"].value == "SUCCESS"          # 秒成功，不排队
+    assert seen["fields"]["textContent"] == task.textContent

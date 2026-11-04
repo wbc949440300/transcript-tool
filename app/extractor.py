@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from .models import TaskDetail, TaskStatus
+from .subproc import hidden
 from .dual_asr import dual_asr_correct, vosk_available
 from .douyin import fetch_douyin, normalize_url
 from .kuaishou import fetch_kuaishou
@@ -38,6 +39,16 @@ DEFAULT_WHISPER = "medium"
 # 口播短于这个字数就认为"没有有效口播"，改用画面字幕作正文（字幕优先，2026-10-31）
 _SUBTITLE_AS_MAIN_MIN = 15
 _WHISPER_LOCK = threading.Lock()
+
+
+class _CooldownActive(RuntimeError):
+    """冷却闸门自己抛的异常（不是一次新的风控）。
+
+    实测（2026-11-02）：闸门抛的是普通 RuntimeError，会被下面的 classify_failure()
+    判成 kind="risk"，于是**什么都没发生的第二次调用**也会再吃一次
+    mark_platform_cooldown → strikes+1、reason 被改写成闸门文案、冷却时长翻倍
+    （30m → 60m → 120m，封顶 2h）。用专门的异常类型把"闸门"和"真风控"分开。
+    """
 
 
 def _whisper_device() -> str:
@@ -107,7 +118,7 @@ def _extract_info(url: str) -> dict:
                 ydl_opts["proxy"] = px
             remain = platform_cooldown_remaining(plat, egress=eg)
             if remain > 0 and platform_cooldown_enabled(plat):
-                raise RuntimeError(
+                raise _CooldownActive(
                     f"{detect_platform(url)} 风控冷却中（约 {int(remain // 60) + 1} 分钟后自动恢复）。"
                     "刚被限流时继续请求会加深标记；建议先提取其他平台，到点自动恢复。")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -117,6 +128,10 @@ def _extract_info(url: str) -> dict:
                         record_account_result(used_ck, True, plat)
                     return info
             raise RuntimeError("extract_info 返回空")
+        except _CooldownActive:
+            # 闸门自己抛的：一路原样抛给调用方，**不再 classify / 不再 mark**，
+            # 否则冷却会自增（实测 strikes 1→2、时长翻倍、reason 被改写成闸门文案）。
+            raise
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             kind = classify_failure(exc)
@@ -328,6 +343,25 @@ def _pick_device() -> tuple[str, str]:
     return "cpu", "int8"
 
 
+def _hf_hub_cache_dir() -> Path:
+    hub = (os.getenv("HF_HUB_CACHE") or os.getenv("HUGGINGFACE_HUB_CACHE")
+           or os.getenv("TRANSFORMERS_CACHE"))
+    if hub:
+        return Path(hub)
+    base = os.getenv("HF_HOME") or str(Path.home() / ".cache" / "huggingface")
+    return Path(base) / "hub"
+
+
+def _model_cached(model_name: str) -> bool:
+    """模型是否已在本地 HF 缓存里（有就不必联网做 revision 校验）。"""
+    try:
+        repo = "models--Systran--faster-whisper-" + model_name
+        p = _hf_hub_cache_dir() / repo
+        return p.is_dir() and any(p.glob("snapshots/*"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _get_model(model_name: str, device: str, compute_type: str):
     """按 (模型, 设备, 精度) 缓存模型实例，避免每次任务重复加载。"""
     key = (model_name, device, compute_type)
@@ -344,12 +378,40 @@ def _get_model(model_name: str, device: str, compute_type: str):
             old_key = next(iter(_MODEL_CACHE))
             _MODEL_CACHE.pop(old_key, None)
             logger.info("释放旧模型缓存: %s", old_key[0])
-        model = faster_whisper.WhisperModel(
-            model_name, device=device, compute_type=compute_type,
-            cpu_threads=int(os.getenv("TRANSCRIPT_CPU_THREADS", "0")) or 0,
-        )
+        # 本地已有缓存时禁止联网校验：faster-whisper 默认每次会访问 HuggingFace
+        # 查 revision，实测慢 2~18 秒（与服务重启次数无关，是每个进程首次加载都查）。
+        cached = _model_cached(model_name)
+        kwargs = dict(device=device, compute_type=compute_type,
+                      cpu_threads=int(os.getenv("TRANSCRIPT_CPU_THREADS", "0")) or 0)
+        try:
+            model = faster_whisper.WhisperModel(
+                model_name, local_files_only=cached, **kwargs)
+        except Exception:
+            if not cached:
+                raise
+            logger.warning("本地模型加载失败，改走联网校验", exc_info=True)
+            model = faster_whisper.WhisperModel(model_name, **kwargs)
         _MODEL_CACHE[key] = model
     return model
+
+
+def warmup_default_model() -> bool:
+    """启动时后台预加载默认 whisper 模型，省掉重启后第一条任务的模型载入时间。
+
+    实测 medium 冷载入约 9 秒；预加载后第一条短视频任务能直接开始转写。
+    """
+    try:
+        model_name = os.getenv("TRANSCRIPT_WATCH_MODEL", DEFAULT_WHISPER)
+        if model_name not in WHISPER_MODELS:
+            model_name = DEFAULT_WHISPER
+        device, compute_type = _pick_device()
+        with _WHISPER_LOCK:      # 与正式转写共用锁，避免并发加载两份模型
+            _get_model(model_name, device, compute_type)
+        logger.info("whisper 模型预热完成: %s (%s/%s)", model_name, device, compute_type)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("whisper 模型预热失败: %s", exc)
+        return False
 
 
 def _fmt_mmss(sec: float) -> str:
@@ -575,7 +637,7 @@ def _enhance_audio(src: Path) -> Path:
             ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-vn",
              "-af", "highpass=f=80",
              "-ac", "1", "-ar", "16000", str(out)],
-            check=True, timeout=600,
+            check=True, timeout=600, **hidden(),
         )
         if out.exists() and out.stat().st_size > 0:
             logger.info("音频增强完成: %s", out.name)
@@ -656,6 +718,106 @@ def _douyin_stream_urls(d: dict) -> tuple[list[str], list[str]]:
     return asr, preview
 
 
+_CODEC_MEMO: dict[str, str] = {}
+
+
+def _probe_codec(url: str, referer: str = "https://www.douyin.com/",
+                 timeout: float = 6.0) -> str:
+    """嗅探一条直链的视频编码，返回 'h264' / 'hevc' / ''（未知）。
+
+    只读文件头（ffprobe 读 moov 里的 sample entry），不整条下载；
+    超时压到 6 秒 —— 它只用来给预览排个序，绝不能反过来拖慢主链路。
+    ★ 2026-11-04 加：抖音预览卡死（进度条照走、画面不动）的根因是最高码率档
+      常为 HEVC，而 Chrome/Edge 的 H.265 **只能硬解**，显卡不支持时就是黑画面。
+    """
+    import subprocess
+
+    u = (url or "").strip()
+    if not u:
+        return ""
+    hit = _CODEC_MEMO.get(u)
+    if hit is not None:
+        return hit
+    codec = ""
+    try:
+        headers = "Referer: %s\r\nUser-Agent: %s\r\n" % (referer, _DESKTOP_UA)
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-rw_timeout", "4000000", "-headers", headers,
+             "-select_streams", "v:0", "-show_entries", "stream=codec_name",
+             "-of", "csv=p=0", u],
+            capture_output=True, text=True, timeout=timeout, **hidden(),
+        )
+        names = [ln.strip().lower() for ln in (r.stdout or "").splitlines() if ln.strip()]
+        name = names[0] if names else ""
+        if name.startswith("h264"):
+            codec = "h264"
+        elif name in ("hevc", "h265"):
+            codec = "hevc"
+    except Exception:  # noqa: BLE001
+        codec = ""
+    if len(_CODEC_MEMO) > 300:
+        _CODEC_MEMO.clear()
+    _CODEC_MEMO[u] = codec
+    return codec
+
+
+def _prefer_h264(urls: list[str], referer: str = "https://www.douyin.com/",
+                 probe_n: int = 8) -> list[str]:
+    """把 h264 直链排到最前，其余保持原顺序（浏览器兼容性优先）。
+
+    抖音同一条作品通常同时给 hevc 与 h264 两套流，但最高码率那档往往是 hevc。
+    实测 2026-11-04：有的作品前 4 条里压根没有 h264（h264 排在更后面），
+    所以默认把整份候选（最多 8 条）都探一遍，别只探前几条就下结论。
+    Chromium 系浏览器对 H.265 只走硬解：显卡/驱动不支持、或关掉"使用图形加速"时，
+    <video> 的表现是"进度条在走、画面冻在第一帧、声音正常"，canPlayType 还返回
+    "probably" 骗人 —— 所以必须在**选档时**就把 h264 顶上去，不能等前端报错。
+    探测失败（编码未知）的保持原位，不影响原有回退链。
+    """
+    items = [u for u in (urls or []) if str(u).strip()]
+    if len(items) <= 1:
+        return items
+    head, rest = items[:max(1, probe_n)], items[probe_n:]
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(4, len(head))) as pool:
+            codecs = list(pool.map(lambda u: _probe_codec(u, referer), head))
+    except Exception:  # noqa: BLE001
+        return items
+    h264 = [u for u, c in zip(head, codecs) if c == "h264"]
+    others = [u for u, c in zip(head, codecs) if c != "h264"]
+    if not h264:
+        return items
+    if h264 != head:
+        logger.info("抖音预览选档: 前 %d 条中 h264=%d，已把 h264 提到最前", len(head), len(h264))
+    return h264 + others + rest
+
+
+def _douyin_candidate_label(d: dict, url: str) -> str:
+    """给一条直链配一个人能读的标签（档名@码率），失败信息里靠它指出是哪一档。"""
+    for v in (d.get("video_variants") or []):
+        if isinstance(v, dict) and str(v.get("url") or "") == url:
+            gear = str(v.get("gear") or "")
+            rate = v.get("bitrate")
+            if isinstance(rate, (int, float)) and rate > 0:
+                return "%s@%dkbps" % (gear or "档", int(rate / 1000))
+            return gear or "档"
+    if url == d.get("video_url"):
+        return "默认档"
+    if url == d.get("audio_url"):
+        return "音频兜底"
+    return "直链"
+
+
+def _douyin_diag_note(rows: list[str]) -> str:
+    """把每一档的探测结果拼成一句话，直接写进任务 errorMessage / 日志。
+
+    目的：下次再出同类问题，报错本身就说明卡在哪一档、为什么，不用再翻日志。
+    纯函数，方便离线测试。
+    """
+    return "；".join(rows) if rows else "没有可用的直链候选"
+
+
 def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
                      whisper_model: str, work_dir: Path) -> None:
     """抖音专用：Playwright 渲染抓取 aweme_detail，再对整条视频做语音转写。
@@ -680,7 +842,9 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
     # 直链分流：预览用最高码率档（可切档的备用地址一并带上），ASR 用最低档
     asr_urls, preview_urls = _douyin_stream_urls(d)
     if preview_urls:
-        task.videoUrlList = preview_urls[:8]
+        # 预览选 h264 优先：抖音最高码率档常是 HEVC，浏览器只能硬解，没硬解就是黑画面
+        preview_urls = _prefer_h264(preview_urls[:8])
+        task.videoUrlList = preview_urls
         task.videoUrl = preview_urls[0]
     else:
         task.videoUrl = d.get("video_url")
@@ -688,18 +852,32 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
             task.videoUrlList = [d.get("video_url")]
     task.content = d.get("desc")
 
-    # 图集/图文作品：aweme_detail 给的是 images[]，没有视频流。
-    # 旧实现会落到"抖音视频下载失败"，对用户是误导；这里直接走图片 OCR（P2）。
+    # 图集/图文作品：aweme_detail 给的是 images[]。
+    # 2026-11-04 实测：/note/<id> 改成走 /video/<id> 之后，图集会正常带回 images[]；
+    # 而这类作品的 aweme_detail **同样有 video/play_addr**（轮播合成流），所以不能再拿
+    # "没有 video_url" 当图集判据 —— 旧判据会让图集落进视频 ASR，转出来是背景音乐。
     images = d.get("images") or []
-    if not d.get("video_url") and images:
+    if images:
         logger.info("抖音任务 %s 是图集作品（%d 张图），走按需 OCR", task.taskId, len(images))
         store.update_status(task.taskId, TaskStatus.RUNNING,
                             errorMessage="正在识别图集文字（OCR）...")
-        text = _ocr_images(images, referer="https://www.douyin.com/", platform="douyin")
-        if not text.strip():
-            raise RuntimeError("这是抖音图文/图集作品，但图片文字识别失败（图片可能已过期）。")
-        task.sourceText = text
-        task.textContent = text
+        try:
+            text = _ocr_images(images, referer="https://www.douyin.com/", platform="douyin")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("抖音图集 OCR 失败（%s），退回作品描述", exc)
+            text = ""
+        if text.strip():
+            task.sourceText = text
+            task.textContent = text
+            task.segments = None
+            return
+        # 图集里没有可识别文字：用作品描述兜底，别再当视频去 ASR（轮播流没有口播）
+        desc = (d.get("desc") or "").strip()
+        if not desc:
+            raise RuntimeError("这是抖音图文/图集作品，但图片里没有可识别的文字，也没有作品描述。")
+        logger.info("抖音图集未识别到文字，改用作品描述（%d 字）", len(desc))
+        task.sourceText = desc
+        task.textContent = desc
         task.segments = None
         return
 
@@ -712,14 +890,18 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
         return
 
     # 无字幕：下载整条视频做全片 ASR（作品描述只作"作品简介"）
-    logger.info("抖音任务 %s 无自带字幕，下载视频做全片 ASR（%d 档直链，取最小码率）",
+    logger.info("抖音任务 %s 无自带字幕，下载视频做全片 ASR（%d 档直链，小码率优先）",
                 task.taskId, len(asr_urls))
     chosen = None
-    candidates = asr_urls[:2]                          # 先试最小的两档（省流量）
+    # 2026-11-04 实测：bit_rate[] 里混着**纯画面轨**（DASH video-only，ffprobe 只见 hevc/h264、
+    # 没有 aac）。这类档即使下完也转不出人声，旧逻辑按码率从小到大硬下，连撞两个空轨后才
+    # 落到默认档（默认档常是 1080p，一条 4 分钟视频 ~90MB，容易在 CDN 侧被掐连接）。
+    # 现在先远程 ffprobe 读文件头探音轨，纯画面轨直接跳过、不下载。
+    candidates = asr_urls[:6]                          # 从小到大试，够找到带音轨的那档
     if d.get("video_url"):
         candidates.append(d["video_url"])              # 默认档兜底（实测最稳）
     candidates = list(dict.fromkeys(u for u in candidates
-                                    if isinstance(u, str) and u.startswith("http")))[:3]
+                                    if isinstance(u, str) and u.startswith("http")))[:6]
     if _DOUYIN_LOW_GEAR_BAD and d.get("video_url"):
         # 本进程已经证实低码率档不可解码 → 后面几条直接走默认档，别再白下几 MB
         candidates = [d["video_url"]]
@@ -728,19 +910,30 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
     seg_text, segs = "", []
     chosen = None
     transcribe_error: Exception | None = None
+    diag: list[str] = []              # 每档的探测/下载/转写结果，失败时原样进报错
     for idx, cand in enumerate(candidates, 1):
-        logger.info("抖音 ASR 下载候选 %d/%d（优先最小码率）", idx, len(candidates))
+        label = _douyin_candidate_label(d, cand)
+        if cand != d.get("video_url"):
+            has_audio = _url_has_audio_stream(cand, referer="https://www.douyin.com/")
+            if has_audio is False:
+                logger.info("抖音候选 %d/%d（%s）是纯画面轨，跳过不下载", idx, len(candidates), label)
+                diag.append("候选%d %s 无音轨" % (idx, label))
+                continue
+        logger.info("抖音 ASR 下载候选 %d/%d（%s，小码率优先）", idx, len(candidates), label)
         got = _download_http_media(cand, work_dir, referer="https://www.douyin.com/",
                                    platform="douyin")
         if got is None:
+            diag.append("候选%d %s 下载被中断" % (idx, label))
             continue
         if not _has_audio_stream(got):
             # 低码率档有时给的不是可真解码的流 → 删掉换下一档（别硬丢给 whisper）
-            logger.warning("候选 %d 下到的文件没有音轨（%.1f MB），换下一档",
-                           idx, got.stat().st_size / 1048576)
+            size_mb = got.stat().st_size / 1048576
+            logger.warning("候选 %d（%s）下到的文件没有音轨（%.1f MB），换下一档",
+                           idx, label, size_mb)
             got.unlink(missing_ok=True)
-            if idx < len(candidates) and cand != d.get("video_url"):
-                globals()["_DOUYIN_LOW_GEAR_BAD"] = True   # 记住：低码率档不可用
+            diag.append("候选%d %s 下载后无音轨(%.1fMB)" % (idx, label, size_mb))
+            # 注意：没有音轨 ≠ 这一档不可用（bit_rate[] 本来就有纯画面轨），
+            # 不能因此把 _DOUYIN_LOW_GEAR_BAD 置位、让后续任务一律改下 1080p 大档。
             continue
         store.update_status(task.taskId, TaskStatus.RUNNING,
                             errorMessage="正在转写全片口播（视频较长时会久一点）...")
@@ -751,8 +944,9 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
             # 实测存在"ffprobe 说有音轨、解码/转写仍失败"的档（2026-10-31 一条任务死在这）
             # → 换下一档候选，而不是让整条任务失败
             transcribe_error = exc
-            logger.warning("候选 %d 转写失败（%s: %s），换下一档候选",
-                           idx, type(exc).__name__, exc)
+            diag.append("候选%d %s 转写失败(%s)" % (idx, label, type(exc).__name__))
+            logger.warning("候选 %d（%s）转写失败（%s: %s），换下一档候选",
+                           idx, label, type(exc).__name__, exc)
             try:
                 got.unlink(missing_ok=True)
             except Exception:  # noqa: BLE001
@@ -760,6 +954,7 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
             if idx < len(candidates) and cand != d.get("video_url"):
                 globals()["_DOUYIN_LOW_GEAR_BAD"] = True   # 这档连解码都不稳
             continue
+        diag.append("候选%d %s 成功" % (idx, label))
         chosen = got
         break
 
@@ -773,12 +968,16 @@ def _run_douyin_task(task: TaskDetail, work_url: str, want_audio: bool,
                                 errorMessage="正在转写全片口播（视频较长时会久一点）...")
             seg_text, segs = _transcribe(fallback, whisper_model, language="zh",
                                        on_progress=_progress_reporter(task))
-        elif transcribe_error is not None:
+        note = _douyin_diag_note(diag)
+        logger.error("抖音任务 %s 直链全部失败，逐档结果: %s", task.taskId, note)
+        if transcribe_error is not None:
             raise RuntimeError(
                 f"抖音视频转写失败：所有直链档都无法解码（{type(transcribe_error).__name__}: "
-                f"{transcribe_error}），多源重试也没取到可用视频。") from transcribe_error
+                f"{transcribe_error}）；逐档结果：{note}；yt-dlp 兜底也没取到可用视频。") from transcribe_error
         else:
-            raise RuntimeError("抖音视频下载失败（多源重试耗尽）")
+            raise RuntimeError(
+                "抖音视频下载失败：" + note
+                + "；yt-dlp 兜底也没取到（抖音解析器现在对匿名请求要求 cookie）")
 
     task.sourceText = seg_text
     task.textContent = seg_text
@@ -916,6 +1115,13 @@ def _humanize_error(exc: Exception, platform: str = "") -> str:
     msg = str(exc or "")
     low = msg.lower()
 
+    # 已经是写给用户的人话（本工具自己抛出的可操作提示）→ 原样返回，别再改写一遍。
+    # 实例：小红书那条"…请在小红书 App 里重新「分享 → 复制链接」…"里含"已删除"，
+    # 会命中下面“已删除 / 地区限制”那条规则，被降级成通用文案、把可操作建议吞掉。
+    # 只认本工具自己那两句，避免把 yt-dlp 原样回显的 URL（也含 xsec_token）当成人话放过去。
+    if "笔记无法访问" in msg or "请在小红书 App 里重新" in msg:
+        return msg
+
     # 小红书图文笔记：yt-dlp 只能找视频流，图文笔记必然报 No video formats
     if "no video formats" in low and ("小红书" in platform or "xiaohongshu" in low or "xhs" in low):
         return ("这条笔记是「图文笔记」，没有视频流，所以无法按视频提取。"
@@ -941,6 +1147,20 @@ def _humanize_error(exc: Exception, platform: str = "") -> str:
     if "deleted" in low or "geo-restrict" in low or "已删除" in msg or "地区" in msg:
         return "该内容已删除或存在地区限制，无法提取。"
 
+    # 链接打不开 / 已失效：yt-dlp 常见 404 与 "Unable to download webpage"
+    # （2026-11-02 实测：这两类都落到最后原样回显英文原文）
+    if "unable to download webpage" in low or "not found" in low or "404" in msg:
+        return ("链接打不开（404）：视频可能已删除、下架，或链接已失效。"
+                "请先在浏览器里确认链接能正常打开，再重试。")
+
+    # 网络层故障（连不上 / 被墙 / DNS / 证书）
+    if ("urlopen error" in low or "getaddrinfo" in low or "connection" in low
+            or "ssl" in low or "tunnel" in low):
+        return "网络连接失败：本机网络或代理可能不通，检查后重试。"
+
+    if "timed out" in low or "timeout" in low:
+        return "请求超时：网络较慢或目标站点限速，稍后重试或换网络环境。"
+
     return msg
 
 def _ocr_images(urls, referer: str = "", platform: str = "") -> str:
@@ -953,7 +1173,7 @@ def _ocr_images(urls, referer: str = "", platform: str = "") -> str:
     from urllib.parse import urlparse
 
     from .ocr import ocr_image
-    from .utils import http_opener, throttle
+    from .utils import http_get_bytes, throttle
 
     try:
         first = max(1, int(os.getenv("TRANSCRIPT_IMAGE_OCR_FIRST", "3")))
@@ -971,8 +1191,7 @@ def _ocr_images(urls, referer: str = "", platform: str = "") -> str:
             if referer:
                 headers["Referer"] = referer
             req = urllib.request.Request(u, headers=headers)
-            with http_opener("", media=True).open(req, timeout=30) as r:
-                data = r.read()
+            data, _ = http_get_bytes(req, timeout=30)
             got = (ocr_image(data) or "").strip()
         except Exception as exc:  # noqa: BLE001
             logger.warning("第 %d 张图 OCR 失败: %s", i + 1, exc)
@@ -1040,6 +1259,39 @@ def _external_fallback(work_url: str, work_dir: Path, media_url: str = "") -> Op
 _LOCAL_PREVIEW_FILE = "video.mp4"
 
 
+def _url_has_audio_stream(url: str, referer: str = "", timeout: float = 8.0) -> Optional[bool]:
+    """远程判断一条直链是否含音轨（ffprobe 只读文件头，不整条下载）。
+
+    返回 True=有音轨、False=确定没有、None=探测失败（当作未知，仍需下载后再验）。
+    抖音 bit_rate[] 里混有 DASH 纯画面轨，靠这个跳过它们能省下整条无效下载。
+
+    超时刻意压到 8 秒（实测正常 0.2~1.8s，CDN 抖时会挂到 19s 以上）：
+    探测只是"省流量"的优化，不能反过来拖慢主链路 —— 拿不到结论就直接下载再验。
+    """
+    import subprocess
+    import time as _time
+
+    headers = "Referer: %s\r\nUser-Agent: %s\r\n" % (referer or "https://www.douyin.com/", _DESKTOP_UA)
+    t0 = _time.time()
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-rw_timeout", "5000000", "-headers", headers,
+             "-select_streams", "a:0", "-show_entries", "stream=codec_type",
+             "-of", "csv=p=0", url],
+            capture_output=True, text=True, timeout=timeout, **hidden(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("抖音直链探测无结论（%.1fs，%s），改为下载后再验",
+                    _time.time() - t0, type(exc).__name__)
+        return None
+    text = (out.stdout or "").strip()
+    if "audio" in text:
+        return True
+    if out.returncode == 0:
+        return False
+    return None
+
+
 def _has_audio_stream(path: Path) -> bool:
     """用 ffprobe 判断文件是否真的含可解码音轨。
 
@@ -1053,7 +1305,7 @@ def _has_audio_stream(path: Path) -> bool:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=20,
+            capture_output=True, text=True, timeout=20, **hidden(),
         )
         return "audio" in (out.stdout or "")
     except Exception:  # noqa: BLE001
@@ -1068,7 +1320,7 @@ def _has_video_stream(path: Path) -> bool:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=20,
+            capture_output=True, text=True, timeout=20, **hidden(),
         )
         return "video" in (out.stdout or "")
     except Exception:  # noqa: BLE001
@@ -1100,7 +1352,7 @@ def _ensure_mp4(path: Path, work_dir: Path) -> Optional[Path]:
             subprocess.run(
                 ["ffmpeg", "-y", "-i", str(path), "-c", "copy",
                  "-movflags", "+faststart", *extra, str(out)],
-                capture_output=True, timeout=600, check=True,
+                capture_output=True, timeout=600, check=True, **hidden(),
             )
             if out.is_file() and out.stat().st_size > 0:
                 return out
@@ -1136,7 +1388,7 @@ def _ffmpeg_pull_hls(hls_url: str, referer: str, out: Path, timeout: int = 900) 
     cmd = ["ffmpeg", "-y", "-v", "error", "-headers", headers, "-i", hls_url,
            "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", str(out)]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=timeout, check=True)
+        subprocess.run(cmd, capture_output=True, timeout=timeout, check=True, **hidden())
     except Exception as exc:  # noqa: BLE001
         logger.warning("ffmpeg 直拉 HLS 失败: %s", exc)
         return None
@@ -1235,6 +1487,8 @@ def _run_frame_ocr(task: TaskDetail, work_url: str, work_dir: Path) -> None:
         if fr.get("text"):
             task.frameText = fr["text"]
             task.frameBlocks = fr.get("blocks") or []
+            task.frameMainText = fr.get("main_text") or None
+            task.frameSceneText = fr.get("scene_text") or None
             logger.info("任务 %s 画面文字 %d 字", task.taskId, len(fr["text"]))
             # 口播为空/极短（纯音乐、无旁白）→ 画面字幕就是正文（字幕优先）
             body = (task.textContent or "").strip()

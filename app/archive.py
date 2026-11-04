@@ -50,6 +50,33 @@ def _unique_path(directory: Path, stem: str) -> Path:
     return p
 
 
+_NO_SPEECH_NOTE = "（该视频没有口播，信息在画面文字中）"
+_FRAME_MAIN_SEP = "\n\n──────────【作者文案】──────────\n"
+_FRAME_SCENE_SEP = "\n\n──────────【画面文字】──────────\n"
+
+
+def _norm_ws(text: str) -> str:
+    return "".join((text or "").split())
+
+
+def _append_frame_sections(text: str, main: str, scene: str, full: str) -> str:
+    """把 OCR 结果按来源分两段追加：作者展示的主文案 / 画面背景杂字。
+
+    两段都来自 OCR，但版式不同（实测主文案水平居中且字号约 2 倍大）。
+    旧数据没有 main/scene 分组时退回整段放进【画面文字】，不丢内容。
+    """
+    main = (main or "").strip()
+    scene = (scene or "").strip()
+    full = (full or "").strip()
+    if main:
+        text += _FRAME_MAIN_SEP + main
+    if scene:
+        text += _FRAME_SCENE_SEP + scene
+    if not main and not scene and full:
+        text += _FRAME_SCENE_SEP + full
+    return text
+
+
 def save_text_file(task) -> Path | None:
     """把一个已完成任务的文案写成 txt。无正文/失败任务返回 None。
 
@@ -59,14 +86,16 @@ def save_text_file(task) -> Path | None:
     status = getattr(task, "status", "")
     status_v = status.value if hasattr(status, "value") else str(status)
     frame_text = (getattr(task, "frameText", None) or "").strip()
+    frame_main = (getattr(task, "frameMainText", None) or "").strip()
+    frame_scene = (getattr(task, "frameSceneText", None) or "").strip()
     if not text and not frame_text:
         return None
     if status_v != "SUCCESS":
         return None
-    if not text:
-        text = "（该视频没有口播，信息在画面文字中）"
-    if frame_text:
-        text += "\n\n──────────【画面文字】──────────\n" + frame_text
+    # 无口播时正文会被画面文字顶替；此时正文与 frameText 是同一份，不能重复写
+    if not text or (frame_text and _norm_ws(text) == _norm_ws(frame_text)):
+        text = _NO_SPEECH_NOTE
+    text = _append_frame_sections(text, frame_main, frame_scene, frame_text)
     title = getattr(task, "title", None) or getattr(task, "taskId", "") or "未命名"
     created = (getattr(task, "createTime", None) or "")[:10] or ""
     stem = (created + "_" if created else "") + _safe_stem(str(title))
@@ -104,10 +133,16 @@ def backfill() -> int:
         except Exception:  # noqa: BLE001
             extra = {}
         ft = (extra.get("frameText") or "").strip()
-        if ft:
-            sep = "\n\n──────────【画面文字】──────────\n"
-            text = (text or "（该视频没有口播，信息在画面文字中）") + sep + ft
-        if not text or row.get("status") != "SUCCESS":
+        fm = (extra.get("frameMainText") or "").strip()
+        fs = (extra.get("frameSceneText") or "").strip()
+        if not text and not ft:
+            continue
+        if row.get("status") != "SUCCESS":
+            continue
+        if not text or (ft and _norm_ws(text) == _norm_ws(ft)):
+            text = _NO_SPEECH_NOTE
+        text = _append_frame_sections(text, fm, fs, ft)
+        if not text:
             continue
         title = row.get("title") or row.get("task_id") or "未命名"
         created = (row.get("created_at") or "")[:10] or ""

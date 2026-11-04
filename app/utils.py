@@ -28,7 +28,6 @@ _PLATFORM_MAP = [
     ("kuaishou.com", "快手"),
     ("bilibili.com", "B站"), ("b23.tv", "B站"),
     ("weixin.qq.com/xr", "视频号"), ("weixin.qq.com", "微信"),
-    ("tiktok.com", "TikTok"),
 ]
 
 
@@ -66,7 +65,6 @@ _PLATFORM_COOKIE_FILE = [
     ("b23.tv", "bilibili.txt"),
     ("kuaishou.com", "kuaishou.txt"),
     ("gifshow.com", "kuaishou.txt"),
-    ("tiktok.com", "tiktok.txt"),
 ]
 
 
@@ -406,8 +404,7 @@ def platform_of(url: str) -> str:
     for host, name in (("douyin", "douyin"), ("iesdouyin", "douyin"),
                        ("xiaohongshu", "xiaohongshu"), ("xhslink", "xiaohongshu"),
                        ("bilibili", "bilibili"), ("b23.tv", "bilibili"),
-                       ("kuaishou", "kuaishou"), ("gifshow", "kuaishou"),
-                       ("tiktok", "tiktok")):
+                       ("kuaishou", "kuaishou"), ("gifshow", "kuaishou")):
         if host in u:
             return name
     return "default"
@@ -622,10 +619,84 @@ _PROBE_URL = {
     "kuaishou": "https://m.gifshow.com/",
     "xiaohongshu": "https://www.xiaohongshu.com/",
     "bilibili": "https://www.bilibili.com/",
-    "tiktok": "https://www.tiktok.com/",
     "default": "https://www.baidu.com/",
 }
 _PROXY_CHECKS: dict[str, dict] = {}
+
+
+# ── 出口 IP 探测：判断这条代理是「静态」还是「轮换」─────────────────────────
+#
+# 为什么需要：轮换型代理（每个请求换 IP）会让两个机制**静默失效** ——
+#   1) "一号一 IP 稳定绑定"：IP 一直在变，根本绑不住
+#   2) "冷却按出口隔离"：记不住是哪条出口被限，最后变成整平台停摆
+# 用户在界面上完全看不出来，只会事后发现"效果莫名变差"。所以自检时主动探一次。
+_IP_ECHO_URLS = (
+    "http://members.3322.org/dyndns/getip",
+    "http://myip.ipip.net",
+    "https://api.ipify.org",
+)
+_IP_RE = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+_GEO_URL = ("http://ip-api.com/json/{ip}"
+            "?lang=zh-CN&fields=status,country,regionName,city,isp,org,as,query")
+# 机房/云厂商关键词：命中即提示"疑似机房 IP，建议换住宅线路"
+_DC_HINTS = ("阿里云", "腾讯云", "华为云", "百度云", "金山云", "ucloud", "amazon", "aws",
+             "azure", "microsoft", "google", "cloud", "hosting", "datacenter", "idc",
+             "vps", "digitalocean", "vultr", "linode", "ovh", "hetzner", "oracle")
+
+
+def _exit_ip_once(px: str, timeout: float = 6.0) -> str | None:
+    """经指定出口取一次公网 IP（多个回显源依次试）。全失败返回 None。"""
+    import urllib.request
+
+    for url in _IP_ECHO_URLS:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _PROBE_UA})
+            with http_opener("", proxy=px).open(req, timeout=timeout) as resp:
+                body = resp.read(4096).decode("utf-8", "replace")
+            m = _IP_RE.search(body)
+            if m:
+                return m.group(1)
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _ip_geo(ip: str, timeout: float = 5.0) -> dict:
+    """查出口 IP 的归属地与运营商。best-effort：失败返回 {}，不影响主流程。"""
+    import json as _json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(_GEO_URL.format(ip=ip), timeout=timeout) as resp:
+            d = _json.loads(resp.read(2048).decode("utf-8", "replace"))
+        if isinstance(d, dict) and d.get("status") == "success":
+            return d
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
+def _judge_exit(px: str, *, rounds: int = 3, timeout: float = 6.0) -> dict:
+    """连续取多次出口 IP：判断是否稳定，并顺带拿归属地/运营商。"""
+    ips: list[str] = []
+    for _ in range(max(2, rounds)):
+        got = _exit_ip_once(px, timeout)
+        if not got:
+            break
+        ips.append(got)
+    out: dict = {"exit_ips": ips}
+    if len(ips) >= 2:
+        out["stable"] = len(set(ips)) == 1
+    geo = _ip_geo(ips[0]) if ips else {}
+    if geo:
+        out["geo"] = {"country": geo.get("country") or "",
+                      "region": geo.get("regionName") or "",
+                      "city": geo.get("city") or "",
+                      "isp": geo.get("isp") or "",
+                      "as": geo.get("as") or ""}
+        blob = " ".join(str(geo.get(k) or "") for k in ("isp", "org", "as")).lower()
+        out["datacenter"] = any(h in blob for h in _DC_HINTS)
+    return out
 
 
 def proxy_checks() -> dict:
@@ -633,15 +704,17 @@ def proxy_checks() -> dict:
     return dict(_PROXY_CHECKS)
 
 
-def proxy_check(platform: str, timeout: float = 8.0) -> dict:
-    """用该平台**实际会走的那条出口**访问一次平台首页，判断这条代理是否真的可用。
+def proxy_check(platform: str, timeout: float = 7.0) -> dict:
+    """用该平台**池里的每一条**出口各探一次，逐条给出通/不通。
 
-    只对"配了代理池"的平台调用（没配 = 直连，不需要检查、也不多打请求）。
-    注意：**返回 403/412 也算通** —— 说明请求确实经代理到了平台，只是被反爬挡了；
-    只有连接被拒/超时/解析失败才算"不通"。
+    2026-11-03 改：以前只测 `proxy_for(platform)` 选中的那一条 —— 池里 5 条坏 1 条
+    根本测不出来，等真跑任务才一条条失败，还容易误判成"平台风控"。
+    现在全测 + 并发（20 条也就十几秒）。
 
-    这条检查的价值：配了坏代理时，任务会一条条失败，而你会以为是"平台风控"。
+    注意：**返回 403/412 也算通** —— 请求确实经代理到了平台，只是被反爬挡了；
+    只有连接被拒 / 超时 / 解析失败才算"不通"。
     """
+    import concurrent.futures
     import urllib.request
 
     pool = proxy_pool(platform)
@@ -650,20 +723,65 @@ def proxy_check(platform: str, timeout: float = 8.0) -> dict:
                "at": time.strftime("%Y-%m-%d %H:%M:%S")}
         _PROXY_CHECKS[platform] = res
         return res
-    px = proxy_for(platform)
+
     url = _PROBE_URL.get((platform or "").lower()) or _PROBE_URL["default"]
-    t0 = time.time()
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": _PROBE_UA, "Accept": "*/*"})
-        with http_opener(platform, proxy=px).open(req, timeout=timeout) as resp:
-            res = {"ok": True, "direct": False, "detail": f"HTTP {getattr(resp, 'status', 200)}"}
-    except urllib.error.HTTPError as exc:
-        res = {"ok": True, "direct": False, "detail": f"HTTP {exc.code}（通了，被平台反爬挡）"}
-    except Exception as exc:  # noqa: BLE001
-        res = {"ok": False, "direct": False,
-               "detail": f"{type(exc).__name__}: {str(exc)[:80]}"}
-    res.update({"pool": len(pool), "ms": int((time.time() - t0) * 1000),
-                "at": time.strftime("%Y-%m-%d %H:%M:%S")})
+
+    def probe(px: str) -> dict:
+        t0 = time.time()
+        item = {"proxy": mask_proxy(px), "ok": True, "detail": ""}
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _PROBE_UA, "Accept": "*/*"})
+            with http_opener(platform, proxy=px).open(req, timeout=timeout) as resp:
+                item["detail"] = f"HTTP {getattr(resp, 'status', 200)}"
+        except urllib.error.HTTPError as exc:
+            item["detail"] = f"HTTP {exc.code}（通了，被平台反爬挡）"
+        except Exception as exc:  # noqa: BLE001
+            item["ok"] = False
+            item["detail"] = f"{type(exc).__name__}: {str(exc)[:70]}"
+        item["ms"] = int((time.time() - t0) * 1000)
+        if item["ok"]:
+            # 通了才探出口稳定性（不通就没必要再探）
+            try:
+                item.update(_judge_exit(px, rounds=2, timeout=min(timeout, 5.0)))
+            except Exception:  # noqa: BLE001
+                pass
+        return item
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(pool)))) as ex:
+        items = list(ex.map(probe, pool))
+
+    # 把"能用但有问题"的情况整理成给人看的问题清单（前端据此弹窗）
+    problems: list[str] = []
+    for it in items:
+        label = it.get("proxy") or "?"
+        ips = it.get("exit_ips") or []
+        if it.get("stable") is True and ips:
+            it["detail"] = f"{it.get('detail', '')} · 出口 {ips[0]}（静态）"
+        elif it.get("stable") is False and len(ips) >= 2:
+            it["detail"] = f"{it.get('detail', '')} · 出口 IP 会变"
+            problems.append(
+                f"{label} 的出口 IP 会变（{' → '.join(ips)}）——这是轮换型代理。"
+                "「一号一 IP 稳定绑定」和「冷却按出口隔离」都会失效，建议改用静态 IP。")
+        g = it.get("geo") or {}
+        if g and g.get("country") and "中国" not in str(g.get("country")):
+            problems.append(
+                f"{label} 的出口在境外（{g.get('country')} {g.get('city') or ''}）——"
+                "目标平台对境外 IP 更敏感，建议换国内线路。")
+        if it.get("datacenter"):
+            who = g.get("isp") or g.get("as") or "未知运营商"
+            problems.append(
+                f"{label} 疑似机房 IP（{who}）——机房/云厂商 IP 更容易被平台识别，"
+                "建议换住宅线路。")
+
+    bad = [i for i in items if not i["ok"]]
+    good = len(items) - len(bad)
+    if bad:
+        problems.insert(0, f"有 {len(bad)} 条出口连不上，检查地址/端口/账号密码是否正确。")
+    res = {"ok": not bad, "direct": False, "pool": len(pool),
+           "ok_count": good, "bad_count": len(bad), "items": items,
+           "problems": problems,
+           "detail": f"{good}/{len(items)} 条可用" + (f"，不通 {len(bad)} 条" if bad else ""),
+           "at": time.strftime("%Y-%m-%d %H:%M:%S")}
     _PROXY_CHECKS[platform] = res
     return res
 
@@ -682,6 +800,38 @@ def http_opener(platform: str = "", *, media: bool = False, proxy: str | None = 
     else:
         handler = urllib.request.ProxyHandler({})
     return urllib.request.build_opener(handler)
+
+
+def http_get_bytes(req, *, media: bool = True, timeout: float = 30,
+                   attempts: int = 3, backoff: float = 0.8,
+                   platform: str = "") -> tuple[bytes, dict]:
+    """取整段响应体，带退避重试。
+
+    ★ 2026-11-03 加：排查发现封面、图片 OCR 这几处都是"只请求一次，失败即返回"，
+    而平台 CDN 的瞬时 5xx 很常见（实测同一 URL 连续两次，一次 502、一次 1.6MB/s 正常）。
+    一次抖动就判死，用户体验上就是"莫名其妙失败"。
+
+    **只适合拿完整响应体**（图片、封面、小文件）。视频预览是流式转发，
+    不能在这里重试 —— 那条路径要"换下一条直链"，见 api.py 的 _media_all_urls。
+    """
+    import time
+
+    import urllib.error
+
+    last: Exception | None = None
+    for i in range(max(1, attempts)):
+        try:
+            with http_opener(platform, media=media).open(req, timeout=timeout) as resp:
+                return resp.read(), dict(resp.headers)
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code < 500:      # 4xx 重试无意义（过期 / 无权限 / 不存在）
+                raise
+        except Exception as exc:    # noqa: BLE001  连接重置 / 超时 / URLError
+            last = exc
+        if i + 1 < attempts:
+            time.sleep(backoff * (i + 1))
+    raise last if last is not None else RuntimeError("请求失败")
 
 
 # ---------- 失败分类：决定"退避 / 冷却 / 换策略"，而不是一味重试 ----------

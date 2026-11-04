@@ -31,7 +31,8 @@ def test_other_platforms():
     assert adapter_for("https://xhslink.com/a/b").key == "xiaohongshu"
     assert adapter_for("https://www.bilibili.com/video/BV1xx411c7mD").key == "bilibili"
     assert adapter_for("https://b23.tv/abc").key == "bilibili"
-    assert adapter_for("https://www.tiktok.com/@a/video/1").key == "tiktok"
+    # TikTok 已于 2026-11-03 按需求移除 → 落到通用通道
+    assert adapter_for("https://www.tiktok.com/@a/video/1").key == "default"
 
 
 def test_youtube_is_disabled():
@@ -53,8 +54,9 @@ def test_lookup_by_key_and_catalog():
     assert adapter_by_key("douyin").label == "抖音"
     assert adapter_by_key("nope") is GENERIC
     keys = {a.key for a in all_adapters()}
-    assert {"douyin", "kuaishou", "xiaohongshu", "bilibili", "tiktok", "default"} <= keys
+    assert {"douyin", "kuaishou", "xiaohongshu", "bilibili", "default"} <= keys
     assert "youtube" not in keys
+    assert "tiktok" not in keys     # 2026-11-03 按需求移除
 
 
 def test_budget_and_cooldown_declared():

@@ -7,6 +7,10 @@ from app import utils as utils_mod
 
 
 class _Resp:
+    # 2026-11-03 起取图走 http_get_bytes（带退避重试），它会 dict(resp.headers)，
+    # 所以假响应必须给 headers，否则 AttributeError 被吞掉 → OCR 一次都没被调用。
+    headers: dict = {}
+
     def read(self):
         return b"fake-image-bytes"
 

@@ -168,6 +168,45 @@ def _page_check(page, markers) -> tuple[bool, str]:
     return True, "页面已显示登录态"
 
 
+def _restore_from_cookie_file(ctx, out_path: Path, cfg: dict) -> bool:
+    """profile 里没有登录态时，用导出的 cookies/<平台>.txt 回灌一次。
+
+    导出文件是登录成功那一刻的快照，而抓取端（yt-dlp / 直连请求）本来就直接读它；
+    profile 则可能被清理、或根本不在这台机器上。两边不同源时 --check 会误报
+    "未登录"——2026-11-02 实测：cookies/douyin.txt 里 sessionid 未过期，
+    但 profile 里没有，于是状态页说"已登录"、check 说"未登录"，自相矛盾。
+    """
+    try:
+        if not out_path.is_file():
+            return False
+        from app.utils import load_netscape_cookies
+
+        cookies = load_netscape_cookies(str(out_path))
+    except Exception:  # noqa: BLE001
+        return False
+    if not cookies:
+        return False
+    now = time.time()
+    live = []
+    for c in cookies:
+        exp = c.get("expires")
+        # 没有 expires = 会话 cookie，保留；有则只看未过期的
+        if not exp or float(exp) > now:
+            live.append(c)
+    by_name = {c.get("name"): c for c in live}
+    hit = [t for t in cfg["tokens"]
+           if t in by_name and len(str(by_name[t].get("value") or "")) >= cfg["min_len"]]
+    if not hit:
+        return False
+    try:
+        ctx.add_cookies(live)
+    except Exception:  # noqa: BLE001
+        return False
+    print(f"（profile 无登录态，已从 {out_path.name} 回灌 {len(live)} 条 cookie，"
+          f"含 {'/'.join(hit)}）")
+    return True
+
+
 def _detect(ctx, page, cfg: dict) -> tuple[bool, str]:
     """检测登录态：cookie token + 页面校验。"""
     cookies = ctx.cookies()
@@ -458,6 +497,16 @@ def main() -> int:
                     pass
 
         ok, why = _detect(ctx, page, cfg)
+        if not ok and args.check and _restore_from_cookie_file(ctx, out_path, cfg):
+            # 有页面标注的平台要重载一次，页面才能反映刚注入的 cookie
+            try:
+                if cfg.get("page_markers"):
+                    page.reload(wait_until="domcontentloaded", timeout=30000)
+            except Exception:  # noqa: BLE001
+                pass
+            ok, why = _detect(ctx, page, cfg)
+            if ok:
+                why = f"{why}（登录态取自 cookie 文件 {out_path.name}）"
         if ok:
             print(f"✓ 已有登录态：{why}")
         elif args.check:

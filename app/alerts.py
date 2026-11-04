@@ -77,12 +77,23 @@ def _fail_rate_alert() -> list[dict]:
         return []
     if len(rows) < min_tasks:
         return []
-    failed = sum(1 for r in rows if r.get("status") == "FAILURE")
+    # 冷却期内的"秒拒"不算任务失败：那是风控闸门在保护，请求根本没发到平台。
+    # 不排除的话，一次验证码会自我放大 —— 被拦 3 条 → 冷却 30 分钟 → 这期间提交的
+    # 任务全被闸门挡回、各记一条 FAILURE → 显示成"60% 失败率"，看起来像整条链路崩了。
+    # （2026-11-03 实测：20 条里 12 条失败，其中 9 条是冷却秒拒，真正打到平台只有 3 条）
+    blocked = [r for r in rows
+               if r.get("status") == "FAILURE"
+               and "冷却中" in str(r.get("error_msg") or "")]
+    failed = sum(1 for r in rows if r.get("status") == "FAILURE") - len(blocked)
+    if failed <= 0:
+        return []
     rate = failed / len(rows)
     if rate < threshold:
         return []
+    extra = (f"；另有 {len(blocked)} 条因风控冷却被闸门拦下（未真正请求平台）"
+             if blocked else "")
     return [{"level": "warn", "code": "fail_rate",
-             "message": f"最近 {len(rows)} 条任务失败 {failed} 条（{rate:.0%}），"
+             "message": f"最近 {len(rows)} 条任务失败 {failed} 条（{rate:.0%}）{extra}，"
                         f"查 /risk/status 与 app.log 定位是哪一环节"}]
 
 

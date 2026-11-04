@@ -1,4 +1,4 @@
-"""平台账号登录（本机桌面用）：看状态 / 启动登录 / 验证登录态。
+"""平台账号登录（本机桌面用）：看状态 / 启动登录 / 验证登录态 / 退出登录。
 
 设计边界（重要）：
 - **必须人工**：拉起 login_cookie.py 后要在浏览器里扫码或输密码 —— 这里不做、也不该做"自动登录"
@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -29,6 +30,32 @@ PLATFORMS: tuple[tuple[str, str], ...] = (
 )
 _LOCK = threading.Lock()
 _RUNNING: dict[str, float] = {}          # "platform/account" → 启动时间戳
+_PROCS: dict[str, object] = {}           # 同上 → 登录子进程（用于发现"窗口被关掉"）
+
+
+def _reap(key: str) -> None:
+    """登录子进程已经退出 → 立刻清掉"登录中"状态。
+
+    2026-11-03 修：此前 `_RUNNING` 只在**启动失败**时清理，进程正常结束
+    （典型场景：用户直接把弹出的浏览器窗口关掉、没登录）后状态一直挂着，
+    界面要等满 5 分钟超时才恢复。现在按子进程是否已退出来判定。
+    """
+    with _LOCK:
+        proc = _PROCS.get(key)
+        started = _RUNNING.get(key)
+        if proc is None and started is None:
+            return
+        dead = False
+        if proc is not None:
+            try:
+                dead = proc.poll() is not None   # 进程已结束
+            except Exception:  # noqa: BLE001
+                dead = True
+        if not dead and started and time.time() - started >= _login_timeout():
+            dead = True                          # 兜底：超时（进程可能卡住）
+        if dead:
+            _PROCS.pop(key, None)
+            _RUNNING.pop(key, None)
 
 
 def _login_timeout() -> int:
@@ -61,6 +88,37 @@ def _cookie_path(platform: str, account: str) -> Path:
     return (COOKIE_DIR / platform / f"{account}.txt") if account else (COOKIE_DIR / f"{platform}.txt")
 
 
+def _cookie_file_usable(path: Path) -> bool:
+    """cookie 文件存在、有内容，且至少有一条未过期的 cookie。
+
+    此前只看 `st_size > 0`：一个半年前导出的、cookie 全部过期的文件，
+    状态页也会显示"已登录"（2026-11-02 实测：状态与 /login/check 结论相反）。
+    """
+    try:
+        if not path.is_file() or path.stat().st_size <= 0:
+            return False
+        now = time.time()
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 7:
+                continue
+            try:
+                exp = int(float(parts[4]))
+            except Exception:  # noqa: BLE001
+                continue
+            if exp == 0 or exp > now:      # 0 = 会话 cookie
+                return True
+        return False
+    except Exception:  # noqa: BLE001
+        try:
+            return path.is_file() and path.stat().st_size > 0
+        except Exception:  # noqa: BLE001
+            return False
+
+
 def _row(platform: str, account: str) -> dict:
     path = _cookie_path(platform, account)
     prof = _profile_dir(platform, account)
@@ -68,7 +126,7 @@ def _row(platform: str, account: str) -> dict:
         "account": account or "（默认）",
         "file": (path.relative_to(COOKIE_DIR).as_posix()
                  if path.is_relative_to(COOKIE_DIR) else path.name),
-        "logged_in": path.is_file() and path.stat().st_size > 0,
+        "logged_in": _cookie_file_usable(path),
         "profile": prof.name,
         "profile_exists": prof.is_dir(),
         "cooldown": int(max(0.0, account_cooldown_remaining(str(path)))),
@@ -77,20 +135,60 @@ def _row(platform: str, account: str) -> dict:
         st = path.stat()
         row["size"] = st.st_size
         row["logged_at"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
-        row["days_ago"] = int((time.time() - st.st_mtime) // 86400)
+        age = time.time() - st.st_mtime
+        row["days_ago"] = int(age // 86400)
+        # 友好相对时间（2026-11-03）：1 小时内按分钟、1 天内按小时、超过 1 天才按天。
+        # 原来只给天数，刚登录完也显示"0 天前"，没有信息量。
+        if age < 60:
+            row["ago"] = "刚刚"
+        elif age < 3600:
+            row["ago"] = f"{max(1, int(age // 60))} 分钟前"
+        elif age < 86400:
+            row["ago"] = f"{int(age // 3600)} 小时前"
+        else:
+            row["ago"] = f"{int(age // 86400)} 天前"
     key = f"{platform}/{account or '-'}"
+    _reap(key)                               # 窗口被关掉就立刻恢复，不等超时
     started = _RUNNING.get(key)
     row["logging_in"] = bool(started and time.time() - started < _login_timeout())
+
+    # ★ 2026-11-03：显示该号**稳定绑定的出口**。一号一 IP 到底有没有生效，
+    # 以前只能翻代码或看日志猜，现在页面上直接看得见 —— 这是配代理池时最该确认的一件事。
+    try:
+        from .utils import account_key, proxy_for
+
+        px = proxy_for(platform, account_key(str(path)))
+        row["egress"] = px or ""
+        row["egress_label"] = px or "直连"
+        row["_akey"] = account_key(str(path))
+    except Exception:  # noqa: BLE001
+        row["egress"] = ""
+        row["egress_label"] = ""
+        row["_akey"] = ""
     return row
 
 
 def accounts_status() -> dict:
     """各平台账号状态（纯读本地文件，不联网、不开浏览器）。"""
+    from .utils import account_pool_snapshot
+
     out: dict = {}
     for key, label in PLATFORMS:
+        # 池内每个号的健康度（今日用量 / 成功失败 / 最近失败原因）
+        health = {h.get("name"): h for h in account_pool_snapshot(key)}
         rows = [_row(key, "")]
         for f in list_accounts(key):                 # cookies/<平台>/account_*.txt
             rows.append(_row(key, Path(f).stem))
+        for r in rows:
+            h = health.get(r.get("_akey") or "") or {}
+            r["ok"] = h.get("ok")
+            r["fail"] = h.get("fail")
+            r["used_today"] = h.get("usedToday")
+            r["daily_max"] = h.get("dailyMax")
+            r["capped"] = h.get("capped")
+            r["success_rate"] = h.get("successRate")
+            r["last_fail"] = h.get("lastFail") or ""
+            r.pop("_akey", None)
         used = [r for r in rows if r["logged_in"]]
         out[key] = {
             "label": label,
@@ -126,11 +224,14 @@ def start_login(platform: str, account: str = "") -> dict:
     if account:
         args += ["--account", account]
     try:
-        subprocess.Popen(args, cwd=str(ROOT), **_no_window_flags())
+        proc = subprocess.Popen(args, cwd=str(ROOT), **_no_window_flags())
     except Exception as exc:  # noqa: BLE001
         with _LOCK:
             _RUNNING.pop(key, None)
+            _PROCS.pop(key, None)
         return {"started": False, "error": f"拉起登录脚本失败：{exc}"}
+    with _LOCK:
+        _PROCS[key] = proc
     return {
         "started": True,
         "profile": str(_profile_dir(platform, account)),
@@ -165,3 +266,64 @@ def open_cookies_dir() -> str:
     """返回 cookies 目录路径（由调用方负责打开）。"""
     COOKIE_DIR.mkdir(parents=True, exist_ok=True)
     return str(COOKIE_DIR)
+
+
+def logout_account(platform: str, account: str = "") -> dict:
+    """退出登录：删除该账号的 cookie 文件与浏览器 profile。
+
+    - `account` 为空 = 默认账号（`cookies/<平台>.txt` + `cookies/_browser_profile_<平台>`）
+    - 删的是**登录态**，不是历史记录；重新登录即可恢复
+    - 浏览器窗口还开着时会占用 profile 目录 → 删不干净的部分如实回报，不假装成功
+
+    2026-11-03 新增：此前只有「登录/验证」，没有退出通道 —— 被标记或废弃的号
+    无法从界面清掉，会一直留在池子里被反复选中。
+    """
+    plat = (platform or "").strip().lower()
+    labels = dict(PLATFORMS)
+    if plat not in labels:
+        return {"ok": False, "msg": f"不支持的平台：{platform}"}
+    acct = (account or "").strip()
+    if acct and not _ACCOUNT_RE.match(acct):
+        return {"ok": False, "msg": f"账号名不合法：{acct}"}
+
+    cookie = _cookie_path(plat, acct)
+    profile = _profile_dir(plat, acct)
+    done: list[str] = []
+    failed: list[str] = []
+
+    # ① cookie 文件（决定"还算不算登录着"）
+    try:
+        if cookie.is_file():
+            cookie.unlink()
+            done.append(f"已删除 {cookie.name}")
+        else:
+            done.append("cookie 文件本就不存在")
+    except Exception as exc:  # noqa: BLE001
+        failed.append(f"删 cookie 失败：{exc}")
+
+    # ② 浏览器 profile（登录态 + 被平台打上的标记都在这里）
+    try:
+        if profile.exists():
+            shutil.rmtree(profile)
+            done.append(f"已删除浏览器 profile {profile.name}")
+        else:
+            done.append("浏览器 profile 本就不存在")
+    except Exception as exc:  # noqa: BLE001
+        failed.append(f"删 profile 失败（浏览器窗口可能还开着，关掉后重试）：{exc}")
+
+    # ③ 顺手清掉该账号的用量/成功失败记账，免得状态页还显示旧数据
+    try:
+        from .utils import _read_accounts, _write_accounts, account_key
+        data = _read_accounts()
+        key = account_key(str(cookie))
+        if (data.get(plat) or {}).pop(key, None) is not None:
+            _write_accounts(data)
+            done.append("已清除该账号的用量记录")
+    except Exception:  # noqa: BLE001
+        pass
+
+    parts = done + failed
+    if cookie.is_file() or profile.exists():
+        # 还有残留 → 不算成功
+        return {"ok": False, "msg": "；".join(parts) or "删除未完成"}
+    return {"ok": not failed, "msg": "；".join(parts) or "无变化"}

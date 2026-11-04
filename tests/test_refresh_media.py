@@ -72,11 +72,12 @@ def test_refresh_douyin_writes_new_urls(monkeypatch, client):
 
 
 def test_refresh_rejects_unsupported_platform(client):
-    _save_task(url="https://www.bilibili.com/video/BV1xx411c7mD")
+    # B站自 2026-11-03 起也支持刷新（走 yt-dlp 重取）。真正不支持的换成小红书。
+    _save_task(url="https://www.xiaohongshu.com/explore/abc")
     r = client.post("/prod-api/transcript/refreshMedia",
                     json={"taskId": "refresh1"}, headers=_auth())
     assert r.status_code == 400
-    assert "只有抖音/快手" in r.json()["msg"]
+    assert "抖音/快手/B站" in r.json()["msg"]
 
 
 def test_refresh_missing_task(client):
