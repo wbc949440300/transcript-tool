@@ -98,11 +98,11 @@ def test_validation_error_uses_project_envelope(client):
 
 def test_validation_error_bad_type_reports_field(client):
     """类型不对也要给出中文字段名，而不是英文的 type/loc 结构。"""
-    r = client.get("/prod-api/ext/tasks?limit=abc", headers=_auth())
+    r = client.get("/prod-api/history/list?page=abc", headers=_auth())
     assert r.status_code == 400
     body = r.json()
     assert body["code"] == 500
-    assert "limit" in body["msg"]
+    assert "page" in body["msg"]
     assert "detail" not in body
 
 

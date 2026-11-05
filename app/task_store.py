@@ -46,6 +46,47 @@ class TaskStore:
                 except Exception:  # noqa: BLE001
                     pass
 
+    def discard(self, task_id: str) -> None:
+        """从内存表移除一个任务（删除历史记录时调用）。
+
+        2026-11-05 修：此前只删历史库，内存里那份还在 —— 删完记录后结果页 URL
+        仍能打开，直到服务重启才消失。顺带把它从所属批次的条目里摘掉。
+        """
+        with self._lock:
+            self._tasks.pop(task_id, None)
+            for b in self._batches.values():
+                b["items"] = [it for it in b["items"] if it.taskId != task_id]
+
+    def discard_finished(self) -> int:
+        """清空历史时移除所有已结束任务（运行中的保留，别打断正在跑的任务）。"""
+        with self._lock:
+            done = {tid for tid, t in self._tasks.items()
+                    if t.status in (TaskStatus.SUCCESS, TaskStatus.FAILURE)}
+            for tid in done:
+                self._tasks.pop(tid, None)
+            for b in self._batches.values():
+                b["items"] = [it for it in b["items"]
+                              if it.status not in (TaskStatus.SUCCESS, TaskStatus.FAILURE)]
+            return len(done)
+
+    def list_active(self) -> list[TaskDetail]:
+        """还没结束的任务（PENDING/RUNNING），给页面重开后「找回进行中界面」用。
+
+        2026-11-05 加：进行中任务原来只存在浏览器的 sessionStorage 里，关掉标签页
+        就丢了，重开页面看不到进度、只能去历史记录翻。服务端本来就有这份内存表，
+        直接暴露出来，前端重开时据此续上轮询。
+        """
+        with self._lock:
+            return [t for t in self._tasks.values()
+                    if t.status in (TaskStatus.PENDING, TaskStatus.RUNNING)]
+
+    def list_active_batches(self) -> list[str]:
+        """还有未结束子任务的批量 id（批量入口重开后恢复进度用）。"""
+        with self._lock:
+            return [bid for bid, b in self._batches.items()
+                    if any(it.status in (TaskStatus.PENDING, TaskStatus.RUNNING)
+                           for it in b["items"])]
+
     # ---------- 批量任务 ----------
     def create_batch(self, batch_id: str, items: list[TaskDetail]) -> None:
         with self._lock:

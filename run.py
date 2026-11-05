@@ -13,7 +13,7 @@ if __name__ == "__main__":
     from app.env import prepare_runtime_env
 
     prepare_runtime_env()
-    # 应用日志（watch/extractor/external_dl 等）落到文件，否则 INFO 全被丢弃、出错无从排查
+    # 应用日志（watch/extractor 等）落到文件，否则 INFO 全被丢弃、出错无从排查
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",

@@ -100,8 +100,7 @@ DOC_OFFLINE = """\
      ├─ runtime\\
      │    ├─ playwright\\      ← 浏览器内核（约 0.7GB）
      │    └─ models\\          ← 语音识别模型（约 2.3GB）
-     ├─ transcript_tool\\      ← 程序本体（含 ffmpeg）
-     └─ wx_dl_pkg\\            ← 视频号下载器离线安装包
+     └─ transcript_tool\\      ← 程序本体（含 ffmpeg）
 
 【想缩小体积？删这两个目录即可，不影响其它功能】
 
@@ -221,12 +220,10 @@ def main() -> int:
     browsers = Path(os.getenv("PLAYWRIGHT_BROWSERS_PATH")
                     or (Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"))
     hf_home = Path(os.getenv("HF_HOME") or (Path.home() / ".cache" / "huggingface"))
-    pkg_src = br.PKG_SRC
 
     print("\n将要打入的来源：")
     for label, p in [("嵌入式 Python", py_embed), ("site-packages", site_packages),
-                     ("Playwright 内核", browsers), ("whisper 模型", hf_home),
-                     ("离线安装包", pkg_src)]:
+                     ("Playwright 内核", browsers), ("whisper 模型", hf_home)]:
         ok = "✓" if p and Path(p).is_dir() else "✗ 缺失"
         size = ""
         if p and Path(p).is_dir():
@@ -296,7 +293,6 @@ def main() -> int:
                       skip=SLIM_SKIP_FILES)
         else:
             print("[!] 找不到 ffmpeg，离线包会缺它（目标机器需自备）")
-    copy_tree(pkg_src, stage / "wx_dl_pkg", "离线安装包")
 
     # 4) 顶层入口 + 文档
     (stage / "start.bat").write_text(START_BAT, encoding="ascii", newline="\r\n")

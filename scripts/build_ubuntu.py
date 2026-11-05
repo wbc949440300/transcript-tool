@@ -12,9 +12,6 @@
         ③ 完全离线版需要 Linux 的 Python/wheels/chromium/ffmpeg，
            从 Windows 交叉取材可行但**无法验证运行**，等于转嫁风险。
 
-★ 不打包 wx_dl_pkg：视频号下载器是 Windows 专属（UAC/证书/系统代理），
-  在 Linux 上无用；代码会提示改用「把文件同步到监听目录」。
-
 ★ 行尾必须 LF：CRLF 的 .sh 在 Linux 上会报 "bad interpreter"。
 """
 from __future__ import annotations
@@ -48,11 +45,11 @@ DOC_LINUX = """\
     监视目录自动入库、图片 OCR、画面文字识别、导出、AI 纠错、AI 笔记、
     批量任务、历史记录、归档。
 
-  ✘ 视频号抓取不可用。那个下载器是 Windows 专属（要装根证书、接管系统代理、
-    走 UAC 提权），Linux 上跑不了。
-    替代办法：在 Windows 机器上用下载器把视频号视频抓下来，
-    把文件拷进本包目录下的 wx_downloads/ 文件夹，本服务会自动入库转写。
-    代码也会在界面上明确提示这一点，不会报错崩掉。
+  ✔ 视频号：先在「账号」页绑定元宝登录态（微信扫码；服务器没有桌面时，
+    可在有浏览器的机器上登录后拷贝 cookies/yuanbao.txt），之后贴分享链接
+    即可直接下载视频并转写，与 Windows 版一致（2026-11-05 起不再依赖
+    Windows 专属下载器）。
+  ✔ 也可以把已有视频/图片拷进本包目录下的 wx_downloads/ 文件夹自动入库转写。
 
   ✘ 桌面气泡通知自动跳过（Windows 专属），不影响其它功能。
 
@@ -197,11 +194,10 @@ DOC_TROUBLE_LINUX = """\
      这台机器若有 NVIDIA 显卡，装上 CUDA 库能快约 10 倍：
        .venv/bin/pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 
-8. 视频号找不到下载按钮
-   → 正常。视频号下载器是 Windows 专属（要装根证书、接管系统代理、
-     走 UAC 提权），Linux 上不提供。
-     替代：在 Windows 机器上用下载器抓好视频，把文件拷进本包的
-     wx_downloads/ 目录，本服务会自动入库转写。
+8. 视频号提取成功但没有视频
+   → 到「账号」页最上面一行绑定元宝登录态（微信扫码，凭证约 60 天）。
+     没绑定只能拿到文案；绑定后重新提取即可出视频。
+     提示「视频没拿到」多为网络抖动，再点一次「提取」即可。
 
 9. 时间差 8 小时
    → start.sh 已设 TZ=Asia/Shanghai。若你改用自己写的 systemd 单元，
@@ -279,13 +275,6 @@ DOC_THIRDPARTY_LINUX = """\
   各自许可随 pip 安装保留在 .venv/ 里各自的位置。
 
 ────────────────────────────────────────
-【7】关于视频号下载器
-────────────────────────────────────────
-  本包**不含、也不会安装**视频号下载器（wx_channels_download）。
-  它是 Windows 专属（UAC 提权 / 装根证书 / 接管系统代理），Linux 上不提供。
-  处理视频号的替代路径见本文档开头的《使用说明》。
-
-────────────────────────────────────────
   关于本工具自身
 ────────────────────────────────────────
   本工具自己的代码目前**未声明开源许可**。
@@ -334,7 +323,7 @@ def main() -> int:
             "   文案提取工具 · 使用说明（Ubuntu 版）",
             f"   版本 {version} ｜ 打包于 {datetime.datetime.now():%Y-%m-%d %H:%M}",
             "   形态：依赖版（目标机器需 Python 3.10+ 与网络）",
-            f"   平台：Linux amd64（{'不含视频号下载器 —— Windows 专属' if not (ROOT.parent / 'wx_dl_pkg').is_dir() else '不含视频号下载器 —— Windows 专属'}）",
+            "   平台：Linux amd64",
             bar, ""]
     head += ["   升级前请先备份这三项：",
              "       transcript_tool/transcript_history.db   历史记录",
@@ -389,7 +378,6 @@ def main() -> int:
     size = tar_path.stat().st_size
     print(f"\n打包完成: {tar_path}  ({size / 1048576:.1f} MB)")
     print("   结构: start.sh + 使用说明.txt + transcript_tool/ + wx_downloads/")
-    print("   已排除: wx_dl_pkg（视频号下载器，Windows 专属）")
     return 0
 
 

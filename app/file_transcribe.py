@@ -116,10 +116,27 @@ def _transcribe_file(path: Path, model_name: str = "tiny", on_progress=None) -> 
     return text
 
 
+def _resolve_auto_model(model_name: str, media: Path) -> str:
+    """「auto」自适应（2026-11-05 用户定的策略）：短片（≤ TRANSCRIPT_AUTO_MEDIUM_MAX_SEC，
+    默认 240 秒 = 4 分钟，用户定的基准）用 medium 换人名/数字准确率；长视频自动降 tiny
+    控制耗时。时长探测失败按长视频处理（速度优先）。用户显式选了模型则原样返回。"""
+    if model_name != "auto":
+        return model_name
+    try:
+        limit = float(os.getenv("TRANSCRIPT_AUTO_MEDIUM_MAX_SEC", "240"))
+    except ValueError:
+        limit = 120.0
+    from .frame_ocr import _probe_duration
+
+    dur = _probe_duration(str(media))
+    pick = "medium" if 0 < dur <= limit else "tiny"
+    logger.info("转写模型自适应: 时长 %.0f 秒（阈值 %.0f 秒）→ %s", dur, limit, pick)
+    return pick
+
+
 def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name: str,
                    ocr_frames: bool = False, notify: bool = False,
                    platform: str = "本地文件") -> None:
-    kept_video: Path | None = None
     try:
         store.update_status(task.taskId, TaskStatus.RUNNING)
 
@@ -128,48 +145,57 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
         if not has_audio and not has_video:
             raise RuntimeError("该文件没有可识别的音视频流（文件可能损坏或为空）")
 
+        # 含视频流 → 视频保留进任务目录（历史详情可预览/截图）+ 画面文字，与 ASR
+        # **并行**跑（2026-11-05 优化：ASR 占 GPU、抽帧 OCR 占 CPU，串行时两边纯排队）。
+        # 视频副本用 copy 不用 move —— 转写线程此刻可能还在读原文件的音轨。
+        from .extractor import _has_video_stream
+
+        worker = None
+        if has_video or _has_video_stream(file_path):
+            def _keep_and_ocr():
+                try:
+                    dest_dir = Path(os.getenv("TRANSCRIPT_TASKS_DIR", "tasks")) / task.taskId
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest = dest_dir / ("video" + file_path.suffix.lower())
+                    shutil.copyfile(str(file_path), str(dest))
+                    kept = _ensure_browser_preview(dest)
+                    task.videoUrl = "file://" + kept.name
+                    task.videoUrlList = [task.videoUrl]
+                    if not ocr_frames:
+                        return
+                    from .frame_ocr import extract_frame_text
+
+                    fr = extract_frame_text(str(kept))
+                    if fr.get("text"):
+                        task.frameText = fr["text"]
+                        task.frameBlocks = fr.get("blocks") or []
+                        task.frameMainText = fr.get("main_text") or None
+                        task.frameSceneText = fr.get("scene_text") or None
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("预览视频/画面文字处理失败（不影响转写结果）: %s", exc)
+
+            if has_audio:
+                worker = threading.Thread(target=_keep_and_ocr, daemon=True,
+                                          name=f"keepocr-{task.taskId}")
+                worker.start()
+            else:
+                _keep_and_ocr()
+
         # 无音轨（纯画面视频，视频号"告示牌"类常见）→ 跳过语音转写，走画面文字
         text = ""
         if has_audio:
             from .extractor import _progress_reporter
 
-            text = _transcribe_file(file_path, model_name, on_progress=_progress_reporter(task))
+            model_use = _resolve_auto_model(model_name, file_path)
+            text = _transcribe_file(file_path, model_use, on_progress=_progress_reporter(task))
         else:
             logger.info("文件无音轨，跳过语音转写: %s", src_name)
+        if worker is not None:
+            worker.join()          # 画面文字没算完不算完成（结果字段要齐）
 
         task.title = src_name
         task.textContent = text
         task.content = ""
-
-        # 含视频流 → 把视频保留进任务目录，历史详情即可像链接任务一样预览/截图
-        from .extractor import _has_video_stream
-
-        if _has_video_stream(file_path):
-            try:
-                dest_dir = Path(os.getenv("TRANSCRIPT_TASKS_DIR", "tasks")) / task.taskId
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                dest = dest_dir / ("video" + file_path.suffix.lower())
-                shutil.move(str(file_path), str(dest))
-                kept_video = _ensure_browser_preview(dest)
-                task.videoUrl = "file://" + kept_video.name
-                task.videoUrlList = [task.videoUrl]
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("保留预览视频失败（不影响转写结果）: %s", exc)
-
-        # 画面文字（可选）：视频号等平台的文字往往写在画面里
-        if ocr_frames and (kept_video is not None or has_video):
-            try:
-                from .frame_ocr import extract_frame_text
-
-                src = str(kept_video or file_path)
-                fr = extract_frame_text(src)
-                if fr.get("text"):
-                    task.frameText = fr["text"]
-                    task.frameBlocks = fr.get("blocks") or []
-                    task.frameMainText = fr.get("main_text") or None
-                    task.frameSceneText = fr.get("scene_text") or None
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("画面文字识别失败（不影响转写结果）: %s", exc)
 
         from .extractor import _empty_text_note
 

@@ -428,28 +428,20 @@ def resume_last() -> dict:
     return status()
 
 
-def auto_watch_downloader_dir() -> dict:
-    """用户从没显式设置过监听目录时，自动监听下载器的下载目录（视频号零配置）。
+def default_dir(create: bool = False) -> Path:
+    """未显式指定监听目录时的默认位置：项目旁的 wx_downloads。
 
-    - 已在监听 / 用户有显式配置 / 用户停过（optOut）→ 都不打扰；
-    - 目录取 external_dl.DOWNLOAD_DIR（安装时写进下载器 config 的同一个路径）。
+    2026-11-05：外部下载器移除后，默认目录不再依赖它的安装配置；
+    位置沿用原来的 wx_downloads，老用户不用改习惯。
     """
-    if _state.get("enabled"):
-        return status()
-    cfg = _remember_cfg()
-    if cfg and cfg.get("dir"):
-        return status()   # 有显式配置，resume_last 已处理
-    if cfg and cfg.get("optOut"):
-        return status()   # 用户明确停用过
-    try:
-        from . import external_dl
-        d = external_dl.DOWNLOAD_DIR
-        d.mkdir(parents=True, exist_ok=True)
-        start(str(d))
-        logger.info("自动监听下载器下载目录: %s", d)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("自动监听下载器目录失败: %s", exc)
-    return status()
+    raw = (os.getenv("TRANSCRIPT_WATCH_DIR", "") or "").strip()
+    d = Path(raw) if raw else Path(__file__).resolve().parent.parent.parent / "wx_downloads"
+    if create:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.warning("创建默认监听目录失败: %s", d)
+    return d
 
 
 def status() -> dict:

@@ -1,6 +1,6 @@
 """项目根目录 .env 的统一加载入口。
 
-必须在 app 包初始化时最先执行，保证 history/utils/external_dl 等模块
+必须在 app 包初始化时最先执行，保证 history/utils 等模块
 在 import 阶段读取的环境变量同样能拿到 .env 配置。
 不覆盖进程中已经设置的环境变量。
 """

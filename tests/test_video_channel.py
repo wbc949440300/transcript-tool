@@ -227,7 +227,7 @@ def test_process_channel_link_with_yuanbao_downloads(monkeypatch, tmp_path):
     monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
     monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
     monkeypatch.setattr(video_channel, "resolve_video",
-                        lambda raw: {"videoUrl": "https://x/v.mp4", "title": "元宝下的片子",
+                        lambda raw, **kw: {"videoUrl": "https://x/v.mp4", "title": "元宝下的片子",
                                      "cover": "https://x/c.jpg"})
 
     def fake_download(url, dest, timeout=180.0):
@@ -249,6 +249,126 @@ def test_process_channel_link_with_yuanbao_downloads(monkeypatch, tmp_path):
     assert task.title == "元宝下的片子.mp4"
     assert started["platform"] == "视频号" and started["model"] == "small"
     assert started["src"] == "元宝下的片子.mp4"
+
+
+def _quiet_history(monkeypatch):
+    """SUCCESS/FAILURE 会自动落历史 + 归档：测试里拦掉，别写真实库与 文案输出/。"""
+    import app.archive as archive_mod
+    from app import task_store
+
+    monkeypatch.setattr(task_store.history_store, "save", lambda t: None)
+    monkeypatch.setattr(task_store.history_store, "trim", lambda *a, **k: None)
+    monkeypatch.setattr(archive_mod, "save_text_file", lambda t: None)
+
+
+def test_channel_link_retries_then_succeeds(monkeypatch, tmp_path):
+    """元宝接口抖动（实测当天两次失败、第三次成功）：内部自动重试，用户无感。"""
+    import app.file_transcribe as ft
+    from app import task_store, video_channel
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(video_channel.time, "sleep", lambda s: None)   # 测试不真的等
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    calls = {"n": 0}
+
+    def flaky(raw, **kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RuntimeError("Remote end closed connection without response")
+        return {"videoUrl": "https://x/v.mp4", "title": "第三次成功", "cover": "https://x/c.jpg"}
+
+    monkeypatch.setattr(video_channel, "resolve_video", flaky)
+    monkeypatch.setattr(video_channel, "download_media",
+                        lambda url, dest, timeout=180.0: Path(dest).write_bytes(b"mp4"))
+    started: dict = {}
+    monkeypatch.setattr(ft, "start_file_task",
+                        lambda task, tmp, model, src, **kw: started.update(taskId=task.taskId))
+
+    task_id = video_channel.process_channel_link(VC_LINK, "small")
+
+    assert calls["n"] == 3, "前两次失败应当自动重试"
+    assert task_id == started["taskId"]
+
+
+def test_channel_link_bound_but_resolve_keeps_failing_marks_failure(monkeypatch, tmp_path):
+    """绑了凭证仍拿不到视频 → 任务 FAILURE 并提示「再点一次提取」，不再假成功（2026-11-05）。"""
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.setattr(video_channel.time, "sleep", lambda s: None)
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    monkeypatch.setattr(video_channel, "resolve_video",
+                        lambda raw, **kw: (_ for _ in ()).throw(RuntimeError("SSL 握手超时")))
+    _quiet_history(monkeypatch)
+
+    task_id = video_channel.process_channel_link(VC_LINK, "tiny")
+    task = task_store.store.get(task_id)
+
+    assert task.status == TaskStatus.FAILURE
+    assert task.taskType == "videochannel"
+    assert "视频没拿到" in task.errorMessage and "再点一次" in task.errorMessage
+    assert "SSL 握手超时" in task.errorMessage       # 真实原因要带上，便于排查
+    # 失败归失败，已取到的文案不能丢（历史里仍可查到正文）
+    assert task.textContent == "某条关于 AI 的短视频。#DeepSeek"
+    assert task.uploader == "AI.Easy"
+
+
+def test_channel_link_no_stream_keeps_card_with_bound_flag(monkeypatch, tmp_path):
+    """作品本身没有视频流（图集/已删）：重试无意义，保留元数据卡片并标记已绑定。"""
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    n = {"calls": 0}
+
+    def no_stream(raw, **kw):
+        n["calls"] += 1
+        raise RuntimeError("视频号没给视频直链（内容可能已删除或只有图片）")
+
+    monkeypatch.setattr(video_channel, "resolve_video", no_stream)
+    _quiet_history(monkeypatch)
+
+    task_id = video_channel.process_channel_link(VC_LINK, "tiny")
+    task = task_store.store.get(task_id)
+
+    assert n["calls"] == 1, "决定性失败不该重试"
+    assert task.status == TaskStatus.SUCCESS and task.taskType == "videochannel"
+    assert task.channelMeta["bound"] is True
+
+
+def test_channel_link_download_failure_marks_failure(monkeypatch, tmp_path):
+    """直链拿到了但视频下载失败（CDN 偶发 400）：补试一次仍失败 → FAILURE，不降级。"""
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(video_channel.time, "sleep", lambda s: None)
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    monkeypatch.setattr(video_channel, "resolve_video",
+                        lambda raw, **kw: {"videoUrl": "https://x/v.mp4", "title": "下载会失败"})
+    calls = {"n": 0}
+
+    def bad_download(url, dest, timeout=180.0):
+        calls["n"] += 1
+        raise RuntimeError("HTTP Error 400: Bad Request")
+
+    monkeypatch.setattr(video_channel, "download_media", bad_download)
+    _quiet_history(monkeypatch)
+
+    task_id = video_channel.process_channel_link(VC_LINK, "tiny")
+    task = task_store.store.get(task_id)
+
+    assert calls["n"] == 2, "同一直链应当补试一次"
+    assert task.status == TaskStatus.FAILURE
+    assert "视频下载失败" in task.errorMessage and "再点一次" in task.errorMessage
 
 
 def test_process_channel_link_unresolvable(monkeypatch):
@@ -284,3 +404,27 @@ def test_batch_accepts_channel_link(monkeypatch, tmp_path):
     assert items[0].taskType == "videochannel" and items[0].platform == "视频号"
     assert items[0].batchId == "batch_vc" and items[0].index == 0
     assert items[0].textContent == "批量正文内容"
+
+
+def test_fail_no_video_marks_platform(monkeypatch):
+    """绑了凭证、自动重试后仍无视频 → FAILURE，且平台必须标「视频号」。
+
+    回归：批量占位任务初始 platform 是 detect_platform 给的「微信」，失败时
+    不带 platform 字段的话，失败列表的平台列会显示成「微信」（2026-11-05 修）。
+    """
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    calls = []
+    monkeypatch.setattr(task_store.store, "create", lambda t: calls.append(("create", t)))
+    monkeypatch.setattr(task_store.store, "update_status",
+                        lambda tid, st, **f: calls.append(("update", tid, st, f)))
+
+    tid = video_channel._fail_no_video(
+        "https://weixin.qq.com/sph/ZZZ999", "没给视频直链（图集或已删除）", {}, task=None)
+
+    assert tid
+    kind, _tid, status, fields = calls[-1]
+    assert kind == "update" and status == TaskStatus.FAILURE
+    assert fields["platform"] == "视频号"
+    assert "视频" in fields["errorMessage"]

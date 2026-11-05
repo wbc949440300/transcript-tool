@@ -42,7 +42,6 @@ from .models import (
     TaskNode,
     TaskStatus,
     TextConvertRequest,
-    ExternalDownloadRequest,
 )
 from .ocr import ocr_image
 from .task_store import store
@@ -69,8 +68,10 @@ async def create_task(req: CreateTaskRequest):
         from . import video_channel
 
         if video_channel.is_channel_share(raw):
+            # whisperModel 传 auto：下载后按时长自适应（短片 medium / 长视频 tiny），
+            # 前端下拉可选固定模型（2026-11-05）
             task_id = await asyncio.to_thread(
-                video_channel.process_channel_link, raw, req.whisperModel or "tiny")
+                video_channel.process_channel_link, raw, req.whisperModel or "auto")
             if task_id:
                 return TaskCreated(data=TaskCreatedData(taskId=task_id))
             return JSONResponse(status_code=400, content={
@@ -162,6 +163,37 @@ async def query_task(taskId: Optional[str] = None):
     if task is None:
         return JSONResponse(status_code=404, content={"code": 500, "msg": "任务不存在", "data": None})
     return QueryTaskResponse(data=task)
+
+
+@router.get("/transcript/active")
+async def active_tasks():
+    """页面重开后找回「进行中」的任务（2026-11-05）。
+
+    进行中任务的真身只在服务端内存；浏览器关掉标签页后前端存的入口会丢，
+    重开页面就看不到进度、只能去历史记录翻。这里把还没结束的任务交给前端，
+    由它重建轮询、把界面续上。批量的子任务不单列，按 batchId 汇总一条。
+    """
+    active_batches = store.list_active_batches()
+    batch_set = set(active_batches)
+    tasks = []
+    for t in store.list_active():
+        if t.batchId and t.batchId in batch_set:
+            continue
+        tasks.append({
+            "taskId": t.taskId, "taskType": t.taskType, "platform": t.platform or "",
+            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+            "title": t.title or "", "errorMessage": t.errorMessage or "",
+            "createTime": t.createTime or "",
+        })
+    batches = []
+    for bid in active_batches:
+        items = store.get_batch(bid) or []
+        batches.append({
+            "batchId": bid,
+            "done": sum(1 for it in items if it.status in (TaskStatus.SUCCESS, TaskStatus.FAILURE)),
+            "total": len(items),
+        })
+    return {"code": 200, "msg": "操作成功", "data": {"tasks": tasks, "batches": batches}}
 
 
 @router.post("/transcript/image/ocr/doTask", response_model=OcrResult)
@@ -282,12 +314,16 @@ async def history_delete(taskId: Optional[str] = None):
     if not ok:
         # 与 /history/detail 一致：记录不存在就 404（删除本身仍是幂等的，前端只看 body）
         return JSONResponse(status_code=404, content={"code": 500, "msg": "记录不存在", "data": None})
+    # 2026-11-05 修：历史删了，内存里那份也要删，否则结果页 URL 还能打开到重启为止
+    store.discard(taskId)
     return {"code": 200, "msg": "已删除", "data": {"deleted": True}}
 
 
 @router.delete("/history/clear")
 async def history_clear():
     n = history_store.clear()
+    # 已结束的任务从内存里一并移除；运行中的保留，别打断正在跑的任务
+    store.discard_finished()
     return {"code": 200, "msg": f"已清空 {n} 条记录", "data": {"cleared": n}}
 
 
@@ -1010,159 +1046,6 @@ async def text_convert(req: TextConvertRequest):
     return {"code": 200, "msg": "操作成功", "data": {"text": out, "to": "t" if kind == "s2t" else "s"}}
 
 
-@router.get("/ext/status")
-async def ext_status():
-    """外部下载器（wx_channels_download）状态：是否在线、下载目录、平台可用性。"""
-    import asyncio
-
-    from . import external_dl
-
-    info = await asyncio.to_thread(external_dl.probe)
-    return {"code": 200, "msg": "操作成功", "data": info}
-
-
-@router.get("/ext/tasks")
-async def ext_tasks(limit: int = 6):
-    """外部下载器最近的视频号任务（只读监控，不触发重试）。"""
-    import asyncio
-
-    from . import external_dl
-
-    data = await asyncio.to_thread(external_dl.list_video_channel_tasks, limit)
-    return {"code": 200, "msg": "操作成功", "data": data}
-
-
-@router.post("/ext/setup")
-async def ext_setup():
-    """安装外部下载器（幂等）：已装只校正便携配置；未装用本地包/GitHub 下载自举。"""
-    import asyncio
-
-    from . import external_dl
-
-    try:
-        info = await asyncio.to_thread(external_dl.install)
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(status_code=500, content={
-            "code": 500, "msg": f"安装失败：{exc}",
-            "data": {"hint": "可把安装包 zip 放到 wx_dl_pkg/ 目录后重试（离线安装）"}})
-    return {"code": 200, "msg": "操作成功", "data": info}
-
-
-@router.post("/ext/start")
-async def ext_start():
-    """启动外部下载器（弹 UAC 提权：装证书/系统代理需要管理员）。"""
-    import asyncio
-
-    from . import external_dl
-
-    res = await asyncio.to_thread(external_dl.start)
-    ok = bool(res.get("started"))
-    return {"code": 200 if ok else 500,
-            "msg": "下载器已启动" if ok else (res.get("error") or "启动失败"),
-            "data": res}
-
-
-@router.post("/ext/stop")
-async def ext_stop():
-    """停止外部下载器（进程以管理员运行，停止也需要过一次 UAC）。"""
-    import asyncio
-
-    from . import external_dl
-
-    res = await asyncio.to_thread(external_dl.stop)
-    return {"code": 200 if res.get("stopped") else 500,
-            "msg": "下载器已停止" if res.get("stopped") else (res.get("error") or "停止失败"),
-            "data": res}
-
-
-@router.post("/ext/proxy/restore")
-async def ext_proxy_restore():
-    """还原系统代理：下载器 MITM 残留导致"全机断网"时的救命按钮。
-
-    正常情况不需要点：服务启动会做代理体检，服务退出时也会自动还原。
-    """
-    import asyncio
-
-    from . import external_dl
-
-    res = await asyncio.to_thread(external_dl.restore_proxy)
-    return {"code": 200, "msg": res.get("detail") or "已处理", "data": res}
-
-
-@router.post("/ext/proxy/use-mitm")
-async def ext_proxy_use_mitm():
-    """一键把系统代理指向本机 MITM（微信里注入下载按钮的必要条件）。
-
-    会先备份用户原始代理；停止下载器/退出服务时自动还原。
-    """
-    import asyncio
-
-    from . import external_dl
-
-    res = await asyncio.to_thread(external_dl.use_mitm_proxy)
-    ok = bool(res.get("ok"))
-    return JSONResponse(status_code=200 if ok else 500, content={
-        "code": 200 if ok else 500,
-        "msg": res.get("detail") or res.get("error") or ("已指向本机" if ok else "设置失败"),
-        "data": res})
-
-
-@router.post("/ext/download")
-async def ext_download(req: ExternalDownloadRequest):
-    """按“绝对媒体 URL”下载并自动把下载目录纳入监听。
-
-    外部下载器 v260907 的 create_by_url 有上游 unique_id 缺陷，通用直链
-    统一走本地下载；视频号仍使用下载器注入按钮/平台任务。
-    """
-    import asyncio
-    import threading
-    from urllib.parse import urlparse
-
-    from . import external_dl
-
-    url = (req.url or "").strip()
-    if not url:
-        return JSONResponse(status_code=400, content={"code": 400, "msg": "url 不能为空", "data": None})
-    if external_dl.is_video_channel_share(url):
-        return JSONResponse(status_code=400, content={
-            "code": 400,
-            "msg": "视频号分享链接不能直接提交给下载器 API。"
-                   "请在微信里打开视频号视频并播放，点击下载器注入的下载按钮；"
-                   "文件落到下载目录后本工具会自动转写。"
-                   "（视频号接口还要求视频号页面保持打开，否则会返回“请先初始化客户端 socket 连接”。）",
-            "data": None,
-        })
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return JSONResponse(status_code=400, content={
-            "code": 400, "msg": "只接受 http/https 绝对媒体 URL", "data": None})
-
-    info = await asyncio.to_thread(external_dl.probe)
-    target = (req.dir or info.get("download_dir") or str(external_dl.DOWNLOAD_DIR)).strip()
-    if not target:
-        return JSONResponse(status_code=400, content={
-            "code": 400, "msg": "未指定下载目录，且无法从下载器配置读取", "data": info})
-
-    started = None
-    try:
-        st = watch_folder.status()
-        if (not st.get("enabled")) or (st.get("dir") != target):
-            started = watch_folder.start(target, model=req.whisperModel or "medium",
-                                         interval=2.0, move_done=True)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("自动监听下载目录失败: %s", exc)
-
-    def _download():
-        try:
-            external_dl.local_download(url, target)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("本地直链下载失败: %s", exc)
-
-    threading.Thread(target=_download, daemon=True, name="ext-direct-download").start()
-    return {"code": 200, "msg": "已开始直链下载；文件落地后自动转写",
-            "data": {"mode": "local", "watch": started, "downloadDir": target}}
-
-
 @router.get("/risk/status")
 async def risk_status():
     """各平台状态：冷却/熔断 + 排队 + 今日额度（供页面顶部提示 + 排查）。"""
@@ -1264,15 +1147,7 @@ async def watch_open():
     import asyncio
     import os
 
-    d = watch_folder.current_dir(create=True)
-    if d is None:
-        from . import external_dl
-
-        d = external_dl.DOWNLOAD_DIR
-        try:
-            d.mkdir(parents=True, exist_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+    d = watch_folder.current_dir(create=True) or watch_folder.default_dir(create=True)
     try:
         await asyncio.to_thread(_open_in_file_manager, str(d))
     except Exception as exc:  # noqa: BLE001
@@ -1329,13 +1204,8 @@ def watch_media_file(name: str = "", scope: str = "processed"):
 @router.post("/watch/start")
 async def watch_start(req: WatchStartRequest):
     watch_dir = (req.dir or "").strip()
-    if not watch_dir:  # 留空 = 自动接线下载器的下载目录
-        from . import external_dl
-        try:
-            external_dl.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
-        watch_dir = str(external_dl.DOWNLOAD_DIR)
+    if not watch_dir:  # 留空 = 项目旁的默认目录 wx_downloads
+        watch_dir = str(watch_folder.default_dir(create=True))
     try:
         data = watch_folder.start(watch_dir, model=req.model,
                                   interval=max(1.0, float(req.interval)),

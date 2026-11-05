@@ -59,7 +59,8 @@ def start_batch(batch_id: str, urls: list[str], whisper_model: str = "base") -> 
                     ok = None
                 if not ok:
                     store.update_status(task.taskId, TaskStatus.FAILURE,
-                                        errorMessage=CHANNEL_UNRESOLVABLE)
+                                        errorMessage=CHANNEL_UNRESOLVABLE,
+                                        platform="视频号")
                 continue
             # 逐条归一化（短链跳转在后台完成，不阻塞接口）
             try:

@@ -1,4 +1,4 @@
-"""打包发布：生成可分发的绿色 zip（代码 + 离线安装包 + 一键启动 + 新手文档）。
+"""打包发布：生成可分发的绿色文件夹/zip（代码 + 一键启动 + 新手文档）。
 
 用法（在 transcript_tool/ 下）:
     python scripts/build_release.py --check    # 只列出将被打包的内容，不写盘
@@ -9,13 +9,10 @@
     dist/文案提取工具-v<版本>/        可直接运行的文件夹
     dist/文案提取工具-v<版本>.zip     发给别人的压缩包
 
-★ 目录结构刻意复刻原始布局（外层包名 / transcript_tool / wx_dl_pkg）：
-  external_dl.py 里 `_BASE_DIR = _PROJECT_ROOT.parent`，下载器、下载目录、离线包
-  都按它解析。扁平结构会让这些路径跑到包外面去；套一层就全部落在包内。
+★ 目录结构：外层包名 / transcript_tool/（代码都在内层，默认监听目录
+  wx_downloads 落在外层，文案输出同样在外层）。
 
-包里有什么:   代码、start.bat 一键启动、一份合并文档（使用说明+排错+第三方声明）、
-              wx_dl_pkg（视频号下载器离线安装包，约 35MB；包内 .env.example 已预置
-              自装开关，首次以管理员身份运行 start.bat 即自动装好）
+包里有什么:   代码、start.bat 一键启动、一份合并文档（使用说明+排错+第三方声明）
 包里没有什么: whisper 模型、Playwright 内核、ffmpeg（首次运行自动下载）、
               .env、cookies/、历史库、日志（本机私有数据，绝不外带）
 """
@@ -34,14 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent      # .../transcript_tool
 DIST = ROOT / "dist"
 VERSION_FILE = ROOT / "VERSION"
-# 离线安装包在项目根（transcript_tool 的上一级）——与 _BASE_DIR 的解析基准一致
-PKG_SRC = ROOT.parent / "wx_dl_pkg"
-# 是否把视频号下载器的离线安装包（约 35MB，占整包 98% 体积）打进去。
-# True = 包约 35.9MB，视频号**免联网**自动安装（2026-11-02 用户选定）。
-#        配合包内 .env.example 的 TRANSCRIPT_EXT_DL_AUTOSTART=1，
-#        首次以管理员身份运行 start.bat 即可全自动装好。
-# False = 包只有 ~400KB，视频号首次使用时联网从 GitHub 取（国内常失败）。
-INCLUDE_WX_PKG = True
+# 2026-11-05：视频号改走「元宝登录态换直链」，外部下载器（wx_dl_pkg，约 36MB）
+# 连同其离线安装包一起移除；发布包从 ~38MB 降到 ~2MB。
 
 
 def read_version() -> str:
@@ -123,10 +114,9 @@ DOC_INTRO = """\
     解压后你会看到这样的结构（不要改动目录层次）：
 
         文案提取工具-vX.X.X\\
-          ├─ start.bat            ← 双击这个（首次请「以管理员身份运行」）
+          ├─ start.bat            ← 双击这个
           ├─ 使用说明.txt          ← 本文件（先读它）
-          ├─ transcript_tool\\      ← 程序本体（代码都在这里）
-          └─ wx_dl_pkg\\           ← 视频号下载器的离线安装包（首次自动安装用）
+          └─ transcript_tool\\      ← 程序本体（代码都在这里）
 
 第 3 步：双击 start.bat
 
@@ -245,23 +235,14 @@ DOC_TROUBLE = """\
    有 NVIDIA 显卡会快很多；没有则自动用 CPU（约慢 10 倍）。
    装 GPU 加速：pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 
-8. 视频号用不了 / 找不到下载按钮
+8. 视频号用不了 / 提取成功但没有视频
 
-   先确认两件事：
-     · **本机装了「微信 PC 端」并已登录吗？** 下载按钮是注入到微信的视频号
-       页面里的，没有微信就没有使用场景（其它功能不受影响）。
-     · 本包已内置下载器离线包，并预置了自装开关（不需要联网下载）。
-       ★ **首次启动请右键 start.bat →「以管理员身份运行」**：
-         它会自动装好下载器并启动（装根证书 + 接管系统代理需要管理员权限）。
-         之后每次普通双击即可，不会再弹 UAC。
-
-   · 如果首次你只是普通双击：它仍会尝试自动安装，但装证书那一步过不去，
-     服务会在日志里写「自动启动未就绪」。这时到界面「视频号」页点一次
-     「一键安装并启动」，在 UAC 框点「是」即可，之后恢复全自动。
-
-   ★ 这个部件会安装一张根证书并临时接管系统代理，
-     细节见本文档《第三方组件与许可声明》。
-   不安装也完全不影响其它平台的使用。
+   · 先到「账号」页最上面一行（视频号 · 元宝登录）点「登录」，微信扫码一次
+     （腾讯给的凭证约 60 天有效，到期会提醒重扫）。
+   · 没绑定凭证时，贴链接只能拿到标题 / 作者 / 正文，拿不到视频；绑定后
+     重新点一次「提取」就有视频了。
+   · 提示「视频没拿到」多数是网络抖动（工具会自动重试 3 次），再点一次
+     「提取」即可；连续失败就去「账号」页重新扫码刷新凭证。
 
 9. 点「AI 纠错 / AI 笔记」没反应
 
@@ -295,33 +276,7 @@ DOC_THIRDPARTY = """\
 哪些行为需要你知情。
 
 ────────────────────────────────────────
-【1】wx_channels_download（微信视频号下载器）   ★ 安全敏感
-────────────────────────────────────────
-  许可     MIT 许可 + "Commons Clause" 条件 v1.0
-           权利人（Licensor）：ltaoo
-  来源     github.com/ltaoo/wx_channels_download
-  体积     压缩包约 35MB（解压后约 75MB）
-  作用     拦截微信客户端的视频号流量，把视频抓到本地
-  获取     本包 wx_dl_pkg/ 目录**已附带**离线安装包，不需要联网下载；
-           启动时会自动安装（需首次以管理员身份运行 start.bat，装根证书要用）。
-  **前提   本机必须装有「微信 PC 端」并已登录** —— 下载按钮是注入到微信的
-           视频号页面里的；没有微信，这个部件装了也没有使用场景。**
-  状态     本包已预置自装开关（TRANSCRIPT_EXT_DL_AUTOSTART=1）：
-           首次以管理员身份运行 start.bat 时会自动安装并启动，之后保持自动。
-           若首次没以管理员运行，到界面「视频号」页点一次「一键安装并启动」即可。
-
-  ★ 它会做三件需要你知情的事：
-      · 往系统证书库安装一张根证书（用于解密 HTTPS 流量）
-      · 把系统代理临时指向本机 127.0.0.1:2023（接管本机网络出口）
-      · 需要管理员权限（会弹 UAC 提权确认）
-    安装后本工具提供「还原系统代理」按钮；停止服务时也会自动还原。
-    不使用视频号功能，可以完全不安装它，其余功能不受影响。
-
-  注意     Commons Clause 限制"售卖"：不得提供以它功能为主的产品或服务
-           来收费。若你打算把本工具作为商品分发，需另行向权利人取得授权。
-
-────────────────────────────────────────
-【2】ffmpeg / ffprobe
+【1】ffmpeg / ffprobe
 ────────────────────────────────────────
   许可     LGPL / GPL（取决于具体构建；本工具获取的是 gyan.dev 的 essentials 构建）
   体积     约 80MB
@@ -330,7 +285,7 @@ DOC_THIRDPARTY = """\
            项目内 transcript_tool\\tools\\ffmpeg（不污染系统 PATH）
 
 ────────────────────────────────────────
-【3】Playwright Chromium
+【2】Playwright Chromium
 ────────────────────────────────────────
   许可     Apache-2.0（Chromium 自身为 BSD 等）
   体积     约 130MB
@@ -338,7 +293,7 @@ DOC_THIRDPARTY = """\
   获取     python -m playwright install chromium
 
 ────────────────────────────────────────
-【4】faster-whisper 语音识别模型
+【3】faster-whisper 语音识别模型
 ────────────────────────────────────────
   许可     各模型不同（Systran/faster-whisper-* 系列多为 MIT）
   体积     数百 MB（tiny/base/small/medium 合计）
@@ -347,19 +302,19 @@ DOC_THIRDPARTY = """\
            可用 HF_ENDPOINT 环境变量改回官方源
 
 ────────────────────────────────────────
-【5】yt-dlp
+【4】yt-dlp
 ────────────────────────────────────────
   许可     Unlicense（公有领域）
   作用     通用站点的媒体解析（B站、YouTube 等走这条通道）
 
 ────────────────────────────────────────
-【6】RapidOCR + onnxruntime
+【5】RapidOCR + onnxruntime
 ────────────────────────────────────────
   许可     Apache-2.0
   作用     图片文字识别、视频画面文字识别
 
 ────────────────────────────────────────
-【7】其它 Python 依赖
+【6】其它 Python 依赖
 ────────────────────────────────────────
   见 transcript_tool\\requirements.txt（fastapi / uvicorn / python-docx /
   openpyxl / opencc-python-reimplemented 等）。
@@ -442,15 +397,6 @@ def main() -> int:
     if len(files) > 10:
         print(f"    ... 其余 {len(files) - 10} 个")
 
-    # 离线安装包（可选；INCLUDE_WX_PKG=False 时不带，包体积从 35MB 降到 ~400KB）
-    pkg_files: list[Path] = []
-    if INCLUDE_WX_PKG and PKG_SRC.is_dir():
-        pkg_files = [p for p in sorted(PKG_SRC.rglob("*")) if p.is_file()]
-        pk = sum(p.stat().st_size for p in pkg_files)
-        print(f"离线安装包 {len(pkg_files)} 个文件，共 {pk / 1048576:.1f} MB（{PKG_SRC}）")
-    else:
-        print("未附带离线安装包（视频号首次使用需联网从 GitHub 获取）")
-
     # 安全检查：绝不打包这些
     leaked = [f for f in files
               if f.name == ".env" or f.suffix in (".db", ".db-wal", ".db-shm")
@@ -477,27 +423,6 @@ def main() -> int:
         dst = inner / f.relative_to(ROOT)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
-    for p in pkg_files:
-        dst = stage / "wx_dl_pkg" / p.relative_to(PKG_SRC)
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(p, dst)
-
-    # 包内 .env.example 预置「开机自动安装视频号下载器」
-    # （只改包里的副本，仓库里的源文件保持不动）
-    env_ex = inner / ".env.example"
-    if INCLUDE_WX_PKG and env_ex.is_file():
-        t = env_ex.read_text(encoding="utf-8")
-        for old, new in (("#TRANSCRIPT_EXT_DL_AUTOSTART=1", "TRANSCRIPT_EXT_DL_AUTOSTART=1"),
-                         ("# TRANSCRIPT_EXT_DL_AUTOSTART=1", "TRANSCRIPT_EXT_DL_AUTOSTART=1")):
-            if old in t:
-                t = t.replace(old, new)
-                break
-        else:
-            t += "\n# 本包已预置：启动时自动安装并启动视频号下载器（首次需管理员运行）\n"
-            t += "TRANSCRIPT_EXT_DL_AUTOSTART=1\n"
-        env_ex.write_text(t, encoding="utf-8")
-        print("包内 .env.example 已预置 TRANSCRIPT_EXT_DL_AUTOSTART=1")
-
     # 顶层入口 + 单一文档（版本信息 / 使用说明 / 排错 / 第三方声明 合成一份）
     (stage / "start.bat").write_text(TOP_START_BAT, encoding="ascii", newline="\r\n")
 
@@ -559,8 +484,7 @@ def main() -> int:
         print(f"   压缩包: {zip_path}  ({size / 1048576:.1f} MB)")
     else:
         print("   压缩包: 已跳过（未加 --zip；需要发人时再加 --zip）")
-    tail = " + wx_dl_pkg/" if pkg_files else "（不含 wx_dl_pkg）"
-    print(f"   结构  : start.bat + 使用说明.txt + transcript_tool/{tail}")
+    print("   结构  : start.bat + 使用说明.txt + transcript_tool/")
     return 0
 
 

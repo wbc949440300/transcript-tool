@@ -32,12 +32,6 @@ class CreateBatchRequest(BaseModel):
     whisperModel: str = "medium"
 
 
-class ExternalDownloadRequest(BaseModel):
-    url: str = ""
-    dir: str = ""              # 下载目录；留空则用下载器自身配置
-    whisperModel: str = "medium"
-
-
 class TextConvertRequest(BaseModel):
     text: str = ""
     to: str = "s"              # s=简体（默认） / t=繁体

@@ -6,16 +6,16 @@
 所以贴视频号链接可以直接建成一条 SUCCESS 任务展示这些信息，口播语音转文字仍走
 「微信内下载 → 落盘 → 自动入队」。
 
-背景：视频号没有可抓的网页接口，视频流只能靠抓包/下载器；但**元数据**有一个公开预览
-接口可用（交接文档实测）：
+背景：视频号没有可读的网页接口；元数据有一个公开预览接口可用（交接文档实测），
+视频流则靠元宝登录态换带凭证的直链（2026-11-05 起不再使用外部下载器）：
 
     POST https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info
     body {"baseReq":{"generalToken":""},"shortUri":"<id>"}
 
 拿到后做两件事（2026-10-31 加）：
 1. 用户在页面贴视频号链接时，把标题/作者/封面**带回去给他看**，而不是只丢一句"不能解析"；
-2. 按标题**记住**这些元数据 —— 文件经下载器落到监听目录后，用它替换"文件名当标题"
-   （重复下载去重也用它提高命中率）。
+2. 按标题**记住**这些元数据 —— 文件被放进监听目录后，用它替换"文件名当标题"
+   （重复去重也用它提高命中率）。
 
 注意：解析响应用的是容错遍历（接口字段名在不同版本里变过），所以即使字段改名也大概率能取到；
 取不到就安静放弃，不影响主流程。
@@ -151,8 +151,12 @@ def parse_feed_info(payload: dict) -> dict:
     return out if (out["title"] or out["author"] or out["cover"] or out["description"]) else {}
 
 
-def fetch_feed_info(short_uri: str, timeout: float = 20.0) -> dict:
-    """取视频号元数据；失败返回 {}（调用方按"没有元数据"处理）。"""
+def fetch_feed_info(short_uri: str, timeout: float = 12.0) -> dict:
+    """取视频号元数据；失败返回 {}（调用方按"没有元数据"处理）。
+
+    timeout 12 秒（2026-11-05 收紧）：正常响应 1~2 秒，之前给 20 秒时
+    一次 SSL 握手卡死就白等 20+ 秒；收紧后有重试兜底，等待可控。
+    """
     uri = (short_uri or "").strip()
     if not uri:
         return {}
@@ -474,11 +478,10 @@ def download_media(url: str, dest: Path, timeout: float = 180.0) -> Path:
         "Referer": "https://channels.weixin.qq.com/",
     })
     throttle("channels.weixin.qq.com")
-    # 2026-11-05 实测：媒体代理（TRANSCRIPT_PROXY_MEDIA）对 finder.video.qq.com
-    # 常握手超时；这条 CDN 直连反而稳（curl --noproxy 200/3.8MB）。所以先按配置走，
-    # 失败立刻改直连重试一次，不把一次代理抖动算成"视频号下不了"。
+    # 2026-11-05 实测：finder.video.qq.com 直连稳（curl --noproxy 200/3.8MB），
+    # 走媒体代理反而常握手超时 —— 改直连优先，失败再按配置的代理兜底一次。
     last_err: Exception | None = None
-    for idx, opener in enumerate((http_opener("", media=True), http_opener("", proxy=""))):
+    for idx, opener in enumerate((http_opener("", proxy=""), http_opener("", media=True))):
         try:
             with opener.open(req, timeout=timeout) as resp:
                 enc_len = int(resp.headers.get("X-enclen") or resp.headers.get("x-enclen") or 0)
@@ -586,9 +589,11 @@ def match(filename: str) -> Optional[dict]:
 
 # 连元数据都拿不到时给用户的提示（api 400 与批量 FAILURE 共用，别改口径）
 CHANNEL_UNRESOLVABLE = ("没取到该视频号作品的元数据（接口限流或链接已失效）。"
-                        "视频号链接不能直接解析，也不能直接提交给下载器 API："
-                        "请在微信里打开视频号视频并播放，点击下载器注入的下载按钮；"
-                        "文件落到下载目录后本工具会自动转写。也可以抓包导出到「自动监听文件夹」。")
+                        "请再点一次「提取」；仍失败的话，可以改用「上传文件」提取，"
+                        "或把已下载好的视频放进监听目录自动转写。")
+
+# resolve_video 的「决定性失败」标记：作品本身没有视频流（图集/已删除），重试也不会有
+_NO_VIDEO_MARKERS = ("没给视频直链",)
 
 
 def is_channel_share(url: str) -> bool:
@@ -597,48 +602,136 @@ def is_channel_share(url: str) -> bool:
     return ("weixin.qq.com/sph" in raw) or ("channels.weixin.qq.com" in raw)
 
 
-def process_channel_link(raw: str, whisper_model: str = "tiny",
-                         task: Optional[object] = None) -> Optional[str]:
-    """视频号分享链接统一处理（同步；API 用 to_thread 调，批量在 worker 线程直接调）。
+def _resolve_with_retry(raw: str, attempts: int = 3) -> tuple[dict, str]:
+    """元宝直链带自动重试（2026-11-05 加）。
 
-    流程：配了元宝登录态优先「换直链 → 下载 → 转写」（file_transcribe 流水线）；
-    没配或任一步失败回落「链接模式」元数据卡片；连元数据都拿不到返回 None。
-    task 传批量已登记的占位任务则原地复用（改成实际类型并带上真实标题/封面），
-    传 None 就新建任务（单条提交）。返回 taskId，不可解析返回 None。
+    实测腾讯接口有瞬时抖动：连接被对端掐断 / SSL 握手超时，隔几秒重试就好
+    （当天 11:25、11:28 连败两次，11:31 原样重放即成功）。返回 (info, 最后一次
+    失败原因)，info 非空即成功；「没给视频直链」是决定性失败（作品没有视频流），
+    重试无意义，立即返回。
+    """
+    last = ""
+    for attempt in range(attempts):
+        try:
+            # 单次 12 秒（正常响应 1~3 秒）：失败时能把重试压在按钮可接受的等待内
+            return resolve_video(raw, timeout=12), ""
+        except Exception as exc:  # noqa: BLE001
+            last = str(exc) or type(exc).__name__
+            logger.info("视频号直链获取失败（第 %d/%d 次）: %s", attempt + 1, attempts, last)
+            if any(m in last for m in _NO_VIDEO_MARKERS):
+                break
+            if attempt < attempts - 1:
+                time.sleep(2 * (attempt + 1))
+    return {}, last
+
+
+def _fail_no_video(raw: str, detail: str, meta: dict,
+                   task: Optional[object] = None) -> str:
+    """绑定了凭证、自动重试后仍拿不到视频 → 任务标 FAILURE（不再静默降级）。
+
+    2026-11-05 用户要求：界面上必须出现视频才算成功；旧行为是降级成一张"成功"
+    的文案卡片，用户看到「提取成功」却没视频，不知道该重试。现在红色失败提示里
+    直接给出下一步。返回 taskId（前端照常轮询到 FAILURE 显示原因）。
     """
     from .models import TaskDetail, TaskStatus
     from .task_store import store
     from .utils import gen_task_id
 
-    meta: dict = {}
+    reason = (detail or "未知原因").strip()[:140]
+    if meta:
+        msg = (f"文案已取到，但视频没拿到（自动重试后仍失败：{reason}）。"
+               "请再点一次「提取」——多数是网络抖动，再点一次就成；"
+               "连续失败就去「账号」页重扫元宝登录刷新凭证。")
+    else:
+        # 元数据和直链都没拿到：不能说「文案已取到」，否则就是骗人
+        msg = (f"这条作品的信息和视频都没拿到（自动重试后仍失败：{reason}）。"
+               "请再点一次「提取」；仍失败的话，链接可能已失效或作品已被删除，"
+               "可以改用「上传文件」提取。")
+    title = (meta.get("title") or "").strip() or "视频号作品"
+    # platform 进 fields：单条新建和批量占位复用（占位可能被 detect_platform 标成
+    # 「微信」）都要归到「视频号」，失败列表里平台列不能串行
+    fields = {"errorMessage": msg, "title": title, "platform": "视频号"}
+    if meta:
+        # 文案已经拿到了就别丢：失败归失败，正文仍存进这条记录（历史里能查到）
+        desc = (meta.get("description") or "").strip()
+        fields.update({"content": desc, "textContent": desc,
+                       "cover": meta.get("cover") or None,
+                       "uploader": meta.get("author") or None})
+    task_id = task.taskId if task is not None else gen_task_id()
+    if task is None:
+        store.create(TaskDetail(
+            taskId=task_id, taskType="videochannel", status=TaskStatus.PENDING,
+            webpageUrl=raw, **fields))
+    store.update_status(task_id, TaskStatus.FAILURE, **fields)
+    logger.info("视频号提取失败(已自动重试仍无视频): %s → %s", raw, reason[:80])
+    return task_id
+
+
+def process_channel_link(raw: str, whisper_model: str = "tiny",
+                         task: Optional[object] = None) -> Optional[str]:
+    """视频号分享链接统一处理（同步；API 用 to_thread 调，批量在 worker 线程直接调）。
+
+    流程：配了元宝登录态优先「换直链 → 下载 → 转写」（file_transcribe 流水线），
+    直链拿不到时**自动重试**；重试仍失败 → 任务标 FAILURE 并提示「再点一次提取」
+    （2026-11-05 用户要求：必须视频呈现在界面上才算成功，不再静默降级）。
+    只有两种情况保留「链接模式」元数据卡片：没配凭证（设计内行为，前端提交前已
+    提醒过）、作品本身没有视频直链（图集/已删除，重试也不会有）。
+    task 传批量已登记的占位任务则原地复用（改成实际类型并带上真实标题/封面），
+    传 None 就新建任务（单条提交）。返回 taskId，连元数据都拿不到返回 None。
+    """
+    from .models import TaskDetail, TaskStatus
+    from .task_store import store
+    from .utils import gen_task_id
+
     uri = short_uri_from(raw)
-    if uri:
+    cookie = yuanbao_cookie()
+    info: dict = {}
+    vid_err = ""
+
+    def _fetch_meta() -> dict:
+        """匿名元数据：记标题（监听目录按文件名找回用）+ 兜底卡片素材。失败安静。"""
+        if not uri:
+            return {}
         try:
-            meta = fetch_feed_info(uri)
-            if meta:
-                meta["short_uri"] = uri
-                remember(meta)
+            m = fetch_feed_info(uri)
+            if m:
+                m["short_uri"] = uri
+                remember(m)
+            return m
         except Exception as exc:  # noqa: BLE001
             logger.info("视频号元数据获取失败（忽略）: %s", exc)
+            return {}
 
-    info: dict = {}
-    try:
-        if yuanbao_cookie():
-            info = resolve_video(raw)
-    except Exception as exc:  # noqa: BLE001
-        logger.info("视频号直链获取失败（回落到元数据卡片）: %s", exc)
+    if cookie:
+        # 2026-11-05 优化：匿名元数据与直链解析互不依赖，串行白等 1~2 秒 —— 并行发
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fm = ex.submit(_fetch_meta)
+            rm = ex.submit(_resolve_with_retry, raw)
+            meta = fm.result()
+            info, vid_err = rm.result()
+    else:
+        meta = _fetch_meta()
 
     if info.get("videoUrl"):
         task_id = task.taskId if task is not None else gen_task_id()
         tmp_dir = Path("tmp_uploads")
         tmp_dir.mkdir(exist_ok=True)
         tmp = tmp_dir / f"{task_id}.mp4"
-        try:
-            download_media(info["videoUrl"], tmp)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("视频号视频下载失败（回落到元数据卡片）: %s", exc)
-            tmp = None
-        if tmp is not None:
+        # CDN 偶发 400/断流（实测 10:14 那次），同一直链补试一次
+        dl_err = ""
+        for attempt in range(2):
+            try:
+                download_media(info["videoUrl"], tmp)
+                dl_err = ""
+                break
+            except Exception as exc:  # noqa: BLE001
+                dl_err = str(exc) or type(exc).__name__
+                logger.warning("视频号视频下载失败（第 %d/2 次）: %s", attempt + 1, dl_err)
+                if attempt == 0:
+                    time.sleep(2)
+        if not dl_err:
             src_name = (info.get("title") or "视频号视频").strip()[:80] + ".mp4"
             cover = info.get("cover") or None
             if task is None:
@@ -658,9 +751,16 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
             start_file_task(task, tmp, whisper_model, src_name,
                             ocr_frames=True, platform="视频号")
             return task_id
+        vid_err = f"视频下载失败: {dl_err}"
 
-    if meta:
+    no_video_work = bool(vid_err) and any(m in vid_err for m in _NO_VIDEO_MARKERS)
+    if meta and (not cookie or no_video_work):
+        # 没绑定凭证（设计内行为）或作品本身没有视频（图集/已删）→ 卡片就是全部能给的
         return _create_link_mode_task(raw, meta, task)
+
+    if cookie:
+        # 绑了凭证却仍没视频：按「必须出视频才算成功」处理 —— 明确失败 + 告诉用户重试
+        return _fail_no_video(raw, vid_err, meta, task)
     return None
 
 
@@ -669,7 +769,7 @@ def _create_link_mode_task(raw: str, meta: dict, task: Optional[object] = None) 
     但拿不到视频流（实测 get_feed_info 不返回 h264VideoInfo/h265VideoInfo/videoUrl，
     且 CDN 直链是密文）→ 直接建成一条 SUCCESS 任务，前端出「链接模式」卡片。
 
-    口播语音转文字仍走原路：微信内播放 → 下载器注入按钮 → 落盘 → 自动入队。
+    口播语音转文字：元宝直链下载 → 转写（2026-11-05 起不再需要外部下载器）。
     task 传占位任务则原地复用（批量入口）。返回 taskId。
     """
     from .models import TaskDetail, TaskStatus
@@ -691,6 +791,11 @@ def _create_link_mode_task(raw: str, meta: dict, task: Optional[object] = None) 
         "dynamicExportId": meta.get("dynamicExportId") or "",
         "isVideo": bool(meta.get("isVideo")),
     }
+    # 前端据此选提示语：绑了凭证却没视频（图集/作品已删）≠ 没绑定（可去登录）
+    try:
+        channel_meta["bound"] = bool(yuanbao_cookie())
+    except Exception:  # noqa: BLE001
+        channel_meta["bound"] = False
     if task is None:
         task_id = gen_task_id()
         store.create(TaskDetail(

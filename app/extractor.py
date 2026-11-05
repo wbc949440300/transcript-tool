@@ -1238,17 +1238,17 @@ def _run_xhs_image_note(task: TaskDetail, work_url: str, note: dict | None = Non
 def _external_fallback(work_url: str, work_dir: Path, media_url: str = "") -> Optional[Path]:
     """直链兜底：本地下载媒体后交回本项目转写。
 
-    media_url 优先；没有媒体直链时把页面链接交给本地下载器，它会拒绝 HTML，
-    不会误把网页存成视频。不依赖 wx_channels_download 在线。
+    media_url 优先；没有媒体直链时把页面链接交给本地下载，它拒绝 HTML，
+    不会误把网页存成视频。2026-11-05：不再依赖外部下载器。
     """
-    from . import external_dl
+    from .media_dl import download_and_wait
 
     target_url = (media_url or work_url or "").strip()
     if not target_url:
         return None
     logger.info("尝试直链兜底下载: %s", target_url[:100])
     try:
-        return external_dl.download_and_wait(target_url, work_dir)
+        return download_and_wait(target_url, work_dir)
     except Exception as exc:  # noqa: BLE001
         logger.warning("直链兜底失败: %s", exc)
         return None

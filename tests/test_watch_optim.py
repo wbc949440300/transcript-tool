@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from app import alerts, external_dl, watch_folder
+from app import alerts, watch_folder
 
 
 # ---------- #3 零拷贝暂存 ----------
@@ -93,62 +93,15 @@ def test_old_failures_do_not_alert(watch_dir):
         watch_folder._state["failed"] = []
 
 
-# ---------- #5 下载器空闲自动停 ----------
+# ---------- 默认监听目录（2026-11-05 下载器移除后新增） ----------
 
-@pytest.fixture
-def idle_setup(monkeypatch, tmp_path):
-    monkeypatch.setattr(external_dl, "probe", lambda: {"online": True})
-    monkeypatch.setattr(external_dl, "_has_active_task", lambda: False)
-    monkeypatch.setattr(external_dl, "DOWNLOAD_DIR", tmp_path / "dl")
-    (tmp_path / "dl").mkdir()
-    return tmp_path / "dl"
+def test_default_dir_uses_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRANSCRIPT_WATCH_DIR", str(tmp_path / "w"))
+    assert watch_folder.default_dir() == tmp_path / "w"
+    d = watch_folder.default_dir(create=True)
+    assert d.is_dir()
 
 
-def test_idle_stop_disabled_by_default(idle_setup, monkeypatch):
-    monkeypatch.delenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", raising=False)
-    assert external_dl.should_idle_stop() is False
-
-
-def test_idle_stop_when_no_new_files(idle_setup, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", "10")
-    f = idle_setup / "a.mp4"
-    f.write_bytes(b"x")
-    old = time.time() - 30 * 60
-    os.utime(f, (old, old))
-    assert external_dl.should_idle_stop(now=time.time()) is True
-
-
-def test_idle_stop_skips_when_recent_activity(idle_setup, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", "10")
-    (idle_setup / "a.mp4").write_bytes(b"x")          # mtime = 现在
-    assert external_dl.should_idle_stop(now=time.time()) is False
-
-
-def test_idle_stop_skips_when_downloading(idle_setup, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", "10")
-    f = idle_setup / "a.mp4"
-    f.write_bytes(b"x")
-    old = time.time() - 30 * 60
-    os.utime(f, (old, old))
-    monkeypatch.setattr(external_dl, "_has_active_task", lambda: True)
-    assert external_dl.should_idle_stop(now=time.time()) is False
-
-
-def test_idle_stop_skips_when_offline(idle_setup, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", "10")
-    monkeypatch.setattr(external_dl, "probe", lambda: {"online": False})
-    assert external_dl.should_idle_stop(now=time.time()) is False
-
-
-def test_idle_stop_skips_when_dir_empty(idle_setup, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", "10")
-    assert external_dl.should_idle_stop(now=time.time()) is False      # 说不清就别乱停
-
-
-def test_idle_stop_counts_processed_dir(idle_setup, monkeypatch):
-    """processed/ 里有新动静也算活动（刚转写完没多久）。"""
-    monkeypatch.setenv("TRANSCRIPT_EXT_DL_IDLE_STOP_MIN", "10")
-    p = idle_setup / "processed"
-    p.mkdir()
-    (p / "done.mp4").write_bytes(b"x")
-    assert external_dl.should_idle_stop(now=time.time()) is False
+def test_default_dir_falls_back_to_wx_downloads(monkeypatch):
+    monkeypatch.delenv("TRANSCRIPT_WATCH_DIR", raising=False)
+    assert watch_folder.default_dir().name == "wx_downloads"

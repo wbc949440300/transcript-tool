@@ -28,8 +28,7 @@
     python -m app.ingest --dir            # 只打印当前监听目录
 
 监听目录解析顺序：`--dir` > `TRANSCRIPT_WATCH_DIR` >
-服务记住的监听目录（`watch_autostart.json`）> 下载器下载目录
-（`external_dl.DOWNLOAD_DIR`）。
+服务记住的监听目录（`watch_autostart.json`）> 默认目录 `wx_downloads`。
 """
 from __future__ import annotations
 
@@ -62,11 +61,11 @@ def _candidates(explicit: str = "") -> list[tuple[str, Path]]:
     except Exception as exc:  # noqa: BLE001
         logger.debug("读取监听目录配置失败: %s", exc)
     try:
-        from . import external_dl
+        from . import watch_folder
 
-        out.append(("下载器下载目录", external_dl.DOWNLOAD_DIR))
+        out.append(("默认监听目录", watch_folder.default_dir()))
     except Exception as exc:  # noqa: BLE001
-        logger.debug("读取下载器目录失败: %s", exc)
+        logger.debug("读取默认监听目录失败: %s", exc)
     return out
 
 
@@ -152,7 +151,7 @@ def ingest_file(src: str | Path, dest_dir: Optional[Path] = None, name: str = ""
 def ingest_url(url: str, dest_dir: Optional[Path] = None, name: str = "",
                headers: Optional[dict] = None) -> Path:
     """下载 http(s) 直链并落进监听目录（HLS/DASH 自动转交 yt-dlp）。"""
-    from .external_dl import local_download
+    from .media_dl import local_download
 
     raw = (url or "").strip()
     if not raw:
