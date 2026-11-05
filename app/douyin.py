@@ -319,20 +319,7 @@ def _profile_name_for(cookie_file: str | None) -> str:
 
 
 def _image_post_message() -> str:
-    """图集（图文）作品的用户提示：优先引导到"丢进监听目录自动成一条文案"。"""
-    watch_dir = ""
-    try:
-        from .watch_folder import current_dir
-
-        d = current_dir()
-        if d is not None:
-            watch_dir = str(d)
-    except Exception:  # noqa: BLE001
-        watch_dir = ""
-    if watch_dir:
-        return ("这是抖音的图集（图文）作品，本次没能解析到图片数据。可行做法：在抖音 App 里"
-                "保存这些图片，"
-                f"然后全部丢进监听目录：{watch_dir} —— 本工具会把同一批图片自动合成一条文案。")
+    """图集（图文）作品的用户提示：引导用「图片文案提取（OCR）」上传识别。"""
     return ("这是抖音的图集（图文）作品，本次没能解析到图片数据。可行做法：在抖音 App 里保存图片，"
             "再用本工具的「图片文案提取（OCR）」上传识别。")
 

@@ -154,34 +154,10 @@ def _proxy_alert() -> list[dict]:
     return out
 
 
-def _watch_alert() -> list[dict]:
-    """监听目录导入失败（会自动重试，但用户得知道）——最近 30 分钟内 ≥2 次才提醒。"""
-    try:
-        from .watch_folder import status as watch_status
-
-        failed = (watch_status() or {}).get("failed") or []
-    except Exception:  # noqa: BLE001
-        return []
-    cutoff = time.time() - 1800
-    recent = []
-    for row in failed:
-        try:
-            ts = time.mktime(time.strptime(str(row.get("at") or ""), "%Y-%m-%d %H:%M:%S"))
-        except Exception:  # noqa: BLE001
-            continue
-        if ts >= cutoff:
-            recent.append(row)
-    if len(recent) < 2:
-        return []
-    return [{"level": "warn", "code": "watch_fail",
-             "message": f"监听目录最近 30 分钟有 {len(recent)} 次导入失败"
-                        f"（最新：{recent[0].get('file')}，会自动重试；详情见 app.log）"}]
-
-
 def collect() -> list[dict]:
-    """当前告警列表（磁盘 / 失败率 / 队列积压 / 监听导入 / 冷却 / 代理）。"""
+    """当前告警列表（磁盘 / 失败率 / 队列积压 / 冷却 / 代理）。"""
     out: list[dict] = []
-    for fn in (_disk_alert, _fail_rate_alert, _queue_alert, _watch_alert,
+    for fn in (_disk_alert, _fail_rate_alert, _queue_alert,
                _cooldown_notes, _proxy_alert):
         try:
             out.extend(fn() or [])

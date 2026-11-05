@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router
-from .watch_folder import autostart_from_env
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -179,10 +178,6 @@ async def _api_auth_and_session(request: Request, call_next):
 async def _startup_watch():
     import asyncio
 
-    autostart_from_env()
-    # 恢复上次页面里开启的监听目录（用户手动停过则只有 optOut 标记，不会自作主张）
-    from . import watch_folder
-    watch_folder.resume_last()
     # 历史记录里的文案补齐归档到 文案输出/ 文件夹（幂等，缺哪个补哪个）
     from .archive import backfill
     await asyncio.to_thread(backfill)
@@ -195,8 +190,6 @@ async def _startup_watch():
     await asyncio.to_thread(sweep_orphan_task_files)
     # 上传副本：正常跑完会自己删，中断/强杀留下的在这里清（只删够旧的，免得误伤排队中的任务）
     await asyncio.to_thread(sweep_tmp_uploads)
-    # 监听目录 processed/ 的旧原片按天清理（**默认关**：TRANSCRIPT_WATCH_KEEP_DAYS=0）
-    await asyncio.to_thread(watch_folder.sweep_processed)
     import logging
     import os
     import threading

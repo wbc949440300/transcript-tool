@@ -472,31 +472,8 @@ const views = {
         +'<div class="msg" id="vmsg"></div>'
         +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
         +'</div>'
-        // 本地文件 / 监听目录（2026-11-05：方式2 与外部下载器已移除，保留手动放文件）
-        +'<div class="card" id="qqLocalCard">'
-        +'<div class="qq-card-title"><b>本地视频 / 监听目录</b><span>手头已有视频或图片？放进文件夹就自动转写</span></div>'
-        +'<div id="watchStatus" style="font-size:.82rem;color:var(--muted)">监听检测中…</div>'
-        +'<div id="storagePathRow" style="margin-top:.45rem;font-size:.82rem;color:var(--muted);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">'
-        +'<span>文件存放位置：<code id="storagePathText" style="word-break:break-all">检测中…</code></span>'
-        +'<button type="button" class="btn sm ghost" data-open-watch>打开文件夹</button>'
-        +'</div>'
-        +'<div class="row" style="margin-top:.45rem">'
-        +'<input type="text" id="watchDir" placeholder="监听目录（留空 = 默认的 wx_downloads 文件夹）" style="flex:1">'
-        +'<button type="button" class="btn sm" id="watchStart">开始监听</button>'
-        +'<button type="button" class="btn sm ghost" id="watchStop">停止</button>'
-        +'</div>'
-        +'<div style="font-size:.76rem;color:var(--muted);margin-top:.45rem;line-height:1.7">'
-        +  '把视频 / 音频 / 一批图片放进监听文件夹，会自动转写；一次放入的一批图片会合成<b>一条</b>文案。'
-        +'</div>'
-        +'<div id="qqLocalVideoBlock" style="margin-top:.7rem">'
-        +'<div class="qq-card-title" style="justify-content:space-between">'
-        +'<span style="display:flex;align-items:baseline;gap:.45rem;flex-wrap:wrap"><b>最近导入</b><span>本地视频 / 文件，点击打开结果</span></span>'
-        +'<button type="button" class="btn sm ghost" id="localVideoRefresh">刷新</button>'
-        +'</div>'
-        +'<div id="localVideoList" style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">加载中…</div>'
-        +'</div>'
+        // 文案输出快捷入口（监听目录功能已移除，2026-11-05）
         +'<div style="margin-top:.6rem"><button type="button" class="btn sm ghost" id="archOpen">打开文案输出文件夹</button></div>'
-        +'</div>'
         +'<div id="vresult"></div>';
     }
     return '<div class="hero"><h1>'+nm+'视频文案提取</h1>'
@@ -1296,38 +1273,7 @@ function showView(id, key='', pushState=false){
   window.scrollTo({top:0});
 }
 
-// 视频号页两列布局：左侧（本地视频 / 监听目录），右侧（结果视频/截图）
-function layoutQqPage(){
-  const view=document.getElementById('view-video'); if(!view) return;
-  if(view.querySelector('.qq-layout')) return;
-  const sideCard=document.getElementById('qqLocalCard');
-  const vres=document.getElementById('vresult');
-  if(!sideCard||!vres) return;
-  const hero=view.querySelector('.hero');
-  const linkCard=document.getElementById('qqLinkCard');
-  const anchor=linkCard||hero;
-  const layout=document.createElement('div'); layout.className='qq-layout';
-  const side=document.createElement('div'); side.className='qq-side';
-  const main=document.createElement('div'); main.className='qq-main';
-  const tabs=document.getElementById('qqResultTabs');
-  side.append(sideCard);                       // 本身已是 .card，不再套一层
-  main.append(...(tabs?[tabs]:[]), vres);
-  layout.append(side, main);
-  // 链接提取卡留在最上面占满一行，两列布局排在它下面
-  if(anchor && anchor.parentElement) anchor.parentElement.insertBefore(layout, anchor.nextSibling);
-  else view.append(layout);
-  syncQqEmptyState();
-}
-
-// 有结果时左右两栏；没有结果时收回成居中单栏，避免右侧大片空白
-function syncQqEmptyState(){
-  const layout=document.querySelector('.qq-layout');
-  if(!layout) return;
-  layout.classList.toggle('qq-empty', !document.querySelector('#vresult > .card'));
-}
-
 function bindViewEvents(){
-  layoutQqPage();
   // 发现页：事件委托只绑一次（视图会重渲染，不能按 id 绑）
   if(!window.__discoverBound){
     window.__discoverBound=true;
@@ -1368,16 +1314,6 @@ function bindViewEvents(){
     if(m && m[1]){ window.open(resultUrlFor(resultSnap.view, resultSnap.key, m[1]), '_blank'); return; }
     showView(resultSnap.view, resultSnap.key, true);
   });
-  // 监听文件夹（仅视频号页有这些元素）
-  const wStart = $('#watchStart');
-  if(wStart){
-    wStart.addEventListener('click', startWatch);
-    const wStop = $('#watchStop');
-    if(wStop) wStop.addEventListener('click', stopWatch);
-    loadWatchStatus();
-  }
-  // 视频号页：监听目录的新文件自动渲染 + 打开文案输出文件夹
-  if(document.getElementById('watchStatus')) qqWatchLoop();
   // 视频号：链接提取（一个输入框 + 一个按钮，2026-11-05 成为默认主路径）
   const qlink = document.getElementById('qqLinkBtn');
   if(qlink){
@@ -1391,12 +1327,6 @@ function bindViewEvents(){
   }
   const ao = document.getElementById('archOpen');
   if(ao) ao.addEventListener('click', archOpenFolder);
-  // 最近导入的本地视频 / 文件
-  const localRefresh = document.getElementById('localVideoRefresh');
-  if(localRefresh){
-    localRefresh.addEventListener('click', loadLocalVideos);
-    loadLocalVideos();
-  }
   // 历史记录：搜索 / 清空
   const hsearch=$('#hSearch'); if(hsearch) hsearch.addEventListener('click',()=>{ window._hPage=1; loadHistory(); });
   const hkw=$('#hKeyword'); if(hkw) hkw.addEventListener('keydown',e=>{ if(e.key==='Enter'){ window._hPage=1; loadHistory(); } });
@@ -1654,11 +1584,7 @@ function showTaskFailure(entry,msg){
   clearTaskLoading(entry);
   if(ui.msg){
     ui.msg.className='msg error show';
-    if((msg||'').includes('监听目录')){
-      // 抖音图集等场景：给一个直达按钮，图片丢进去就自动成一条文案
-      ui.msg.innerHTML=escapeHtml('失败：'+(msg||'未知错误'))
-        +' <button type="button" class="btn sm ghost" data-open-watch>打开监听目录</button>';
-    }else if((msg||'').includes('再点一次「提取」')){
+    if((msg||'').includes('再点一次「提取」')){
       // 2026-11-05：视频号直链抖动——文案已取到，只差视频。给一键重试，不用回去找输入框
       ui.msg.innerHTML=escapeHtml('失败：'+(msg||'未知错误'))
         +' <button type="button" class="btn sm" data-qq-retry>再提取一次</button>';
@@ -2224,16 +2150,6 @@ function init(){
     document.addEventListener('click', hide, true);
     window.addEventListener('scroll', hide, true);
   })();
-  // 「清理已处理原片」按钮：只删 processed/ 里的素材，不动文案与记录
-  document.addEventListener('click', e=>{
-    const b=e.target.closest('[data-clean-processed]'); if(!b) return;
-    e.preventDefault();
-    if(!confirm('确定清理 processed/ 里的原片吗？\n转写出来的文案和历史记录不受影响。')) return;
-    b.disabled=true;
-    fetch(API+'/watch/clean',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
-      .then(r=>r.json()).then(j=>{ notify(j.msg||'已清理', j.code===200?'success':'error'); loadWatchStatus(); })
-      .catch(()=>notify('清理失败','error')).finally(()=>{ b.disabled=false; });
-  });
   // 「再提取一次」按钮（视频号"文案有了、视频没拿到"的失败提示里按需出现）：
   // 直接复用主按钮，账号/输入框状态全都保持原样
   document.addEventListener('click', e=>{
@@ -2241,14 +2157,6 @@ function init(){
     e.preventDefault();
     const main=document.getElementById('qqLinkBtn');
     if(main && !main.disabled){ b.disabled=true; main.click(); }
-  });
-  // 「打开监听目录」按钮（任务失败提示里按需出现）：图集/图片丢进去 = 自动出一条文案
-  document.addEventListener('click', e=>{
-    const b=e.target.closest('[data-open-watch]'); if(!b) return;
-    e.preventDefault(); b.disabled=true;
-    fetch(API+'/watch/open',{method:'POST'}).then(r=>r.json()).then(j=>{
-      notify(j.msg||'已打开监听目录', j.code===200?'success':'error');
-    }).catch(()=>notify('打开监听目录失败','error')).finally(()=>{ b.disabled=false; });
   });
   // 顶部 nav：**留在当前标签页**切换（只有下拉菜单里的提取入口才新开标签）
   // 2026-11-03 改：此前是全部新标签打开，用户反馈"点任意入口都弹新标签"太吵。
@@ -2389,7 +2297,7 @@ async function renderHistoryResult(id){
   }catch(e){ notify('记录加载失败：'+e.message,'error'); return; }
   if(!d){ notify('记录不存在或已删除','error'); return; }
   let tgt=historyResultTarget(d);
-  // 视频号页打开监听导入的文件任务：留在视频号页渲染（视频/截图），不去「视频转文字」页
+  // 视频号页打开文件转写任务（贴链接下载的片子）：留在视频号页渲染（视频/截图），不去「视频转文字」页
   if(d.task_type==='file_transcript' && currentView==='video' && currentKey==='qqvideo'){
     tgt={view:'video', key:'qqvideo', box:'#vresult'};
   }
@@ -2511,161 +2419,9 @@ async function qqLinkExtract(){
   finally{ if(btn){ btn.disabled=false; btn.textContent='提取'; } }
 }
 
-// ---------- 本地监听目录：新文件落地 → 自动转写 → 结果渲染在本页 ----------
-// 2026-11-05：外部下载器移除后，这里只盯用户自己放进监听文件夹的视频/图片。
-let qqTimer=null;
-
-function qqWatchLoop(){
-  if(qqTimer) clearInterval(qqTimer);
-  qqTimer=setInterval(async ()=>{
-    // 离开本页（元素被重建/移除）就停表，重新进入时 bindViewEvents 会再拉起
-    if(!document.getElementById('watchStatus')){ clearInterval(qqTimer); return; }
-    try{
-      const entry=(typeof activeTasks!=='undefined')?activeTasks['video|qqvideo']:null;
-      // 任务完成后：刷新列表并提示一次
-      if(entry && entry.done && window._qqvHandled!==entry.taskId){
-        window._qqvHandled=entry.taskId;
-        loadWatchStatus(); loadLocalVideos();
-        notify(entry.status==='SUCCESS'?'✓ 提取成功，结果已显示在本页':'提取失败：'+(entry.message||''), entry.status==='SUCCESS'?'success':'error');
-        return;
-      }
-      if(entry && !entry.done) return;            // 转写进行中，交给 pollTaskEntry
-      const j=await (await fetch(API+'/watch/status')).json();
-      const top=(((j.data||{}).recent)||[])[0];
-      if(!top || !top.taskId) return;
-      if(window._qqvLastSeen===undefined){
-        window._qqvLastSeen=top.taskId;
-        // 只有“这一条任务的结果已经在页面上”才跳过；页面里是别的旧结果时，
-        // 新落地的视频仍要自动渲染（否则首轮轮询会把新任务当成旧结果漏掉）
-        const already=[...document.querySelectorAll('#vresult [data-task-id]')]
-          .some(el=>el.dataset.taskId===top.taskId);
-        if(already) return;
-      }else if(top.taskId===window._qqvLastSeen || top.taskId===window._qqvHandled){
-        return;
-      }
-      // 发现新落地文件 → 复用通用任务机制（进度条 + 结果渲染 + 刷新可续）
-      window._qqvLastSeen=top.taskId;
-      registerActive({taskId:top.taskId, view:'video', key:'qqvideo', kind:'video', done:false, status:'RUNNING', message:'排队中'});
-      pollTaskEntry(activeTasks['video|qqvideo']);
-    }catch(e){}
-  }, 2000);
-}
-
-// ---------- 最近导入的本地视频 / 文件（历史记录，持久显示） ----------
-async function loadLocalVideos(){
-  const el = document.getElementById('localVideoList');
-  if(!el) return;
-  try{
-    const j = await (await fetch(API + '/history/list?page=1&pageSize=30')).json();
-    if(j.code !== 200){ el.textContent = '加载失败：' + (j.msg || '接口异常'); return; }
-    const items = (((j.data||{}).list)||[]).filter(it => it.task_type==='file_transcript').slice(0,6);
-    if(!items.length){ el.textContent = '还没有导入的本地视频/文件（监听目录导入后会自动出现在这里）'; return; }
-    el.innerHTML = items.map(it=>{
-      const title = it.title || '(无标题)';
-      const audio = /\.(mp3|wav|m4a|aac|ogg|opus|flac|amr)$/i.test(title);
-      const url = '#/video/qqvideo?task=' + encodeURIComponent(it.task_id);
-      const st = it.status==='SUCCESS'?'成功':it.status==='FAILURE'?'失败':'进行中';
-      const cls = it.status==='SUCCESS'?'ok':it.status==='FAILURE'?'fail':'run';
-      return '<a class="qq-row" href="'+url+'" target="_blank" rel="noopener">'
-        + '<span class="qr-ico">'+(audio?'🎧':'🎬')+'</span>'
-        + '<span class="qr-main">'
-        +   '<span class="qr-title" title="'+escapeHtml(title)+'">'+escapeHtml(title)+'</span>'
-        +   '<span class="qr-sub"><span class="'+cls+'">'+st+'</span><span>'+escapeHtml((it.created_at||'').slice(5,16))+'</span></span>'
-        + '</span>'
-        + '<span class="qr-act"><span class="btn sm ghost">打开结果</span></span>'
-        + '</a>';
-    }).join('');
-  }catch(e){ el.textContent = '加载失败：' + e.message; }
-}
-
 async function archOpenFolder(){
   try{ await fetch(API + '/archive/open', {method:'POST'}); notify('已在资源管理器打开 文案输出 文件夹', 'success'); }
   catch(e){ notify('打开失败：' + e.message, 'error'); }
-}
-
-// ---------- 监听文件夹（视频号抓包导出自动转写） ----------
-function watchRecentHtml(recent, label){
-  const items=(recent||[]).slice(0,5);
-  if(!items.length) return '';
-  const rows=items.map(r=>{
-    const file=escapeHtml(r.file||'');
-    if(!r.taskId) return '<div>'+file+'</div>';
-    const url = '#/video/qqvideo?task=' + encodeURIComponent(r.taskId);
-    return '<div><a href="'+url+'" target="_blank" rel="noopener" style="color:#6d28d9;text-decoration:none">'+file+'</a>'
-      + '<span style="color:#9ca3af;font-size:.74rem"> · '+escapeHtml(r.at||'')+'</span></div>';
-  }).join('');
-  return '<div style="margin-top:.35rem;color:var(--muted)">'+(label||'最近导入（点击打开结果）：')+'</div>'+rows;
-}
-function watchFailedHtml(failed){
-  if(!failed || !failed.length) return '';
-  const rows = failed.slice(0,3).map(f=>
-    '<div>⚠ ' + escapeHtml(String(f.file||'')) + '：' + escapeHtml(String(f.error||'').slice(0,70)) + '</div>'
-  ).join('');
-  return '<div style="margin-top:.35rem;color:#b45309">导入失败（下轮会自动重试）：</div>' + rows;
-}
-function watchUsageHtml(u){
-  if(!u || !u.dir) return '';
-  const mb = (b)=> (Number(b||0)/1048576).toFixed(1)+' MB';
-  let h = '<div style="margin-top:.35rem;color:var(--muted)">目录占用：待处理 '
-        + (u.inboxFiles||0) + ' 个 / ' + mb(u.inboxBytes)
-        + '，已处理 ' + (u.processedFiles||0) + ' 个 / ' + mb(u.processedBytes) + '</div>';
-  if(Number(u.processedBytes||0) > 0){
-    h += '<div style="margin-top:.35rem"><button type="button" class="btn sm ghost" data-clean-processed>清理已处理原片</button>'
-      +  '<span style="color:var(--muted);font-size:.74rem;margin-left:.4rem">删除从视频号提取的视频（文案与历史记录不受影响）</span></div>';
-  }
-  return h;
-}
-async function loadWatchStatus(){
-  const box = document.getElementById('watchStatus');
-  if(!box) return;
-  try{
-    const j = await (await fetch(API + '/watch/status')).json();
-    const d = j.data || {};
-    if(d.enabled){
-      setStoragePath(d.dir);
-      box.innerHTML = '● 正在监听：<code>' + escapeHtml(d.dir) + '</code>'
-        + '（每 ' + (d.interval || 5) + ' 秒扫描，已导入 ' + (d.processed || 0) + ' 个）'
-        + watchUsageHtml(d.usage)
-        + watchFailedHtml(d.failed);
-      box.style.color = '#059669';
-    }else{
-      setStoragePath('');
-      box.innerHTML = '未启用。点「开始监听」使用默认目录（留空即可），或填写自己的目录。';
-      box.style.color = '';
-    }
-  }catch(e){ box.textContent = '状态获取失败'; }
-}
-
-function setStoragePath(p){
-  const el = document.getElementById('storagePathText');
-  if(!el) return;
-  const v = String(p || '').trim();
-  el.textContent = v || '未启用监听';
-  el.title = v;
-}
-
-async function startWatch(){
-  const dir = ((document.getElementById('watchDir') || {}).value || '').trim();
-  // 留空 = 后端使用默认目录（项目旁的 wx_downloads）
-  try{
-    const r = await fetch(API + '/watch/start', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({dir: dir, model:'medium', interval:2, moveDone:true})
-    });
-    const j = await r.json();
-    if(!r.ok){ notify(j.msg || '启动失败', 'error'); return; }
-    notify('已开始监听');
-    loadWatchStatus();
-  }catch(e){ notify('启动失败：' + e.message, 'error'); }
-}
-
-async function stopWatch(){
-  try{
-    await fetch(API + '/watch/stop', {method:'POST'});
-    if(qqTimer){ clearInterval(qqTimer); qqTimer=null; }
-    notify('已停止监听');
-    loadWatchStatus();
-  }catch(e){ notify('停止失败', 'error'); }
 }
 
 async function loadAiStatus(){

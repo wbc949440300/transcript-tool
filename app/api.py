@@ -47,7 +47,6 @@ from .ocr import ocr_image
 from .task_store import store
 from .utils import (detect_platform, gen_task_id, http_opener,
                     platform_cooldown_enabled)
-from . import watch_folder
 
 logger = logging.getLogger("api")
 router = APIRouter()
@@ -1130,95 +1129,6 @@ async def ai_status():
             "fallbackModel": (fb or {}).get("model") or "",
         },
     }
-
-
-# ---------- 监听文件夹（抓包导出 → 自动转写） ----------
-
-class WatchStartRequest(BaseModel):
-    dir: str = ""   # 留空 = 自动使用下载器的下载目录
-    model: str = "medium"
-    interval: float = 2.0
-    moveDone: bool = True
-
-
-@router.post("/watch/open")
-async def watch_open():
-    """在资源管理器里打开监听目录（抖音图集/图片导入用：图片丢进去即自动成一条文案）。"""
-    import asyncio
-    import os
-
-    d = watch_folder.current_dir(create=True) or watch_folder.default_dir(create=True)
-    try:
-        await asyncio.to_thread(_open_in_file_manager, str(d))
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(status_code=500, content={
-            "code": 500, "msg": f"打开失败：{exc}", "data": {"dir": str(d)}})
-    return {"code": 200, "msg": "已打开监听目录", "data": {"dir": str(d)}}
-
-
-@router.get("/watch/status")
-async def watch_status():
-    return {"code": 200, "msg": "操作成功", "data": watch_folder.status()}
-
-
-class WatchCleanRequest(BaseModel):
-    days: int = 0      # >0 只删早于 N 天的；0 = 全删（手动清理语义）
-
-
-@router.post("/watch/clean")
-async def watch_clean(req: WatchCleanRequest | None = None):
-    """清理监听目录 processed/ 里的原片（视频号素材会越攒越多）。
-
-    默认**不自动清理**（`TRANSCRIPT_WATCH_KEEP_DAYS=0`）；这里是手动触发。
-    """
-    import asyncio
-
-    days = max(0, int((req.days if req else 0) or 0))
-    res = await asyncio.to_thread(watch_folder.clean_processed, days)
-    mb = round((res.get("freedBytes") or 0) / 1048576, 1)
-    return {"code": 200,
-            "msg": f"已清理 {res.get('removed', 0)} 个文件（释放 {mb} MB）" if res.get("removed")
-                   else "没有可清理的文件",
-            "data": {**res, "freedMB": mb, "usage": watch_folder.dir_usage()}}
-
-
-@router.get("/watch/media")
-async def watch_media_list():
-    """监听目录（含 processed）里的本地音视频列表，供视频号页「本地视频库」展示。"""
-    return {"code": 200, "msg": "操作成功",
-            "data": await asyncio.to_thread(watch_folder.list_media)}
-
-
-@router.get("/watch/media/file")
-def watch_media_file(name: str = "", scope: str = "processed"):
-    """播放/下载监听目录里的本地视频（FileResponse 自带 Range）。"""
-    path = watch_folder.resolve_media(name, scope)
-    if not path:
-        return JSONResponse(status_code=404,
-                            content={"code": 500, "msg": "文件不存在或路径不合法", "data": None})
-    media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
-    return FileResponse(path, media_type=media_type,
-                        headers={"Accept-Ranges": "bytes", "Cache-Control": "no-store"})
-
-
-@router.post("/watch/start")
-async def watch_start(req: WatchStartRequest):
-    watch_dir = (req.dir or "").strip()
-    if not watch_dir:  # 留空 = 项目旁的默认目录 wx_downloads
-        watch_dir = str(watch_folder.default_dir(create=True))
-    try:
-        data = watch_folder.start(watch_dir, model=req.model,
-                                  interval=max(1.0, float(req.interval)),
-                                  move_done=bool(req.moveDone))
-    except Exception as exc:  # noqa: BLE001
-        return JSONResponse(status_code=400,
-                            content={"code": 500, "msg": f"启动失败：{exc}", "data": None})
-    return {"code": 200, "msg": "已开始监听", "data": data}
-
-
-@router.post("/watch/stop")
-async def watch_stop():
-    return {"code": 200, "msg": "已停止监听", "data": watch_folder.stop()}
 
 
 class AiCorrectRequest(BaseModel):

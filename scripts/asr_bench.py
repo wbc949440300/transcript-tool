@@ -32,10 +32,8 @@ def pick_source(explicit: str = "") -> Path | None:
     if explicit:
         p = Path(explicit)
         return p if p.is_file() else None
-    from app import watch_folder
-
-    base = watch_folder.current_dir() or watch_folder._media_base_dir()
-    if base is None:
+    base = Path(__file__).resolve().parents[2] / "wx_downloads"
+    if not base.is_dir():
         return None
     cands = [f for f in list(base.glob("*")) + list((base / "processed").glob("*"))
              if f.is_file() and f.suffix.lower() in MEDIA_EXT]

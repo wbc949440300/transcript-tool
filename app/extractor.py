@@ -401,7 +401,7 @@ def warmup_default_model() -> bool:
     实测 medium 冷载入约 9 秒；预加载后第一条短视频任务能直接开始转写。
     """
     try:
-        model_name = os.getenv("TRANSCRIPT_WATCH_MODEL", DEFAULT_WHISPER)
+        model_name = DEFAULT_WHISPER
         if model_name not in WHISPER_MODELS:
             model_name = DEFAULT_WHISPER
         device, compute_type = _pick_device()

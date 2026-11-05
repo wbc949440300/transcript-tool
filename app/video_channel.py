@@ -12,10 +12,8 @@
     POST https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info
     body {"baseReq":{"generalToken":""},"shortUri":"<id>"}
 
-拿到后做两件事（2026-10-31 加）：
-1. 用户在页面贴视频号链接时，把标题/作者/封面**带回去给他看**，而不是只丢一句"不能解析"；
-2. 按标题**记住**这些元数据 —— 文件被放进监听目录后，用它替换"文件名当标题"
-   （重复去重也用它提高命中率）。
+拿到后（2026-11-05 起只做一件事）：用户在页面贴视频号链接时，把标题/作者/封面
+**带回去给他看**，而不是只丢一句"不能解析"；配了元宝登录态则直接换直链下载转写。
 
 注意：解析响应用的是容错遍历（接口字段名在不同版本里变过），所以即使字段改名也大概率能取到；
 取不到就安静放弃，不影响主流程。
@@ -37,8 +35,6 @@ from .utils import http_opener, throttle
 logger = logging.getLogger("video_channel")
 
 INFO_API = "https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info"
-MAX_KEEP = 30          # 记住多少条元数据
-_MIN_MATCH_LEN = 6     # 标题匹配的最短长度（太短容易误匹配）
 
 _SHORT_URI_PATTERNS = (
     re.compile(r"/sph/([A-Za-z0-9_-]{6,})"),
@@ -509,77 +505,6 @@ def download_media(url: str, dest: Path, timeout: float = 180.0) -> Path:
     return dest
 
 
-# ---------- 记住元数据（供监听目录把"文件名"换成真标题） ----------
-
-def _meta_file() -> Path:
-    return Path(os.getenv("TRANSCRIPT_VC_META", "video_channel_meta.json"))
-
-
-def _load() -> list[dict]:
-    f = _meta_file()
-    if not f.is_file():
-        return []
-    try:
-        data = json.loads(f.read_text(encoding="utf-8"))
-        items = data.get("items") if isinstance(data, dict) else data
-        return [x for x in (items or []) if isinstance(x, dict)]
-    except Exception:  # noqa: BLE001
-        return []
-
-
-def remember(meta: dict) -> None:
-    """记一条视频号元数据（按标题去重、只留最近 MAX_KEEP 条）。"""
-    if not meta or not (meta.get("title") or meta.get("short_uri")):
-        return
-    items = _load()
-    title = (meta.get("title") or "").strip()
-    items = [x for x in items if (x.get("title") or "").strip() != title]
-    items.insert(0, {
-        "title": title,
-        "author": (meta.get("author") or "").strip(),
-        "cover": (meta.get("cover") or "").strip(),
-        "short_uri": (meta.get("short_uri") or "").strip(),
-        "description": (meta.get("description") or "").strip(),
-        "publishAt": (meta.get("publishAt") or "").strip(),
-        "tags": meta.get("tags") or [],
-        "at": time.strftime("%Y-%m-%d %H:%M:%S"),
-    })
-    try:
-        f = _meta_file()
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(json.dumps({"items": items[:MAX_KEEP]}, ensure_ascii=False),
-                     encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("视频号元数据写入失败: %s", exc)
-
-
-def _norm(text: str) -> str:
-    return re.sub(r"[^\w一-鿿]+", "", (text or "").lower())
-
-
-def match(filename: str) -> Optional[dict]:
-    """按文件名找记住的元数据（文件名通常就是下载器按标题命名的）。
-
-    匹配规则：去掉扩展名与标点后，一方包含另一方且长度 ≥ 6 字。
-    命中返回元数据 dict，否则 None。
-    """
-    stem = _norm(Path(filename or "").stem)
-    if len(stem) < 4:
-        return None
-    for item in _load():
-        title = _norm(item.get("title") or "")
-        if not title:
-            continue
-        if stem == title:                     # 完全一致：长短都认
-            logger.info("文件名命中视频号元数据: %s", filename[:30])
-            return item
-        # 包含关系要两边都够长，否则容易误匹配（下载器会在标题前后加 id/日期）
-        if min(len(stem), len(title)) >= _MIN_MATCH_LEN and (stem in title or title in stem):
-            logger.info("文件名命中视频号元数据: %s → %s", filename[:30], item.get("title", "")[:24])
-            return item
-    return None
-
-
 # ---------- 统一入口：贴一条视频号链接 → 建任务（单条 API 与批量共用） ----------
 #
 # 2026-11-05 起 api 单条提交与批量提取都走 process_channel_link：此前这段逻辑
@@ -689,14 +614,13 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
     vid_err = ""
 
     def _fetch_meta() -> dict:
-        """匿名元数据：记标题（监听目录按文件名找回用）+ 兜底卡片素材。失败安静。"""
+        """匿名元数据：兜底「链接模式」卡片的素材。失败安静。"""
         if not uri:
             return {}
         try:
             m = fetch_feed_info(uri)
             if m:
                 m["short_uri"] = uri
-                remember(m)
             return m
         except Exception as exc:  # noqa: BLE001
             logger.info("视频号元数据获取失败（忽略）: %s", exc)

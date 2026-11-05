@@ -1,19 +1,12 @@
-"""视频号元数据（get_feed_info）+ 监听目录强化：真标题、重复去重、转写进度。
-
-背景：视频号只能靠抓包/下载器拿视频流，网页端拿不到；但元数据有公开预览接口可用。
-文件落到监听目录后，用记住的元数据把"文件名当标题"换掉；同一条视频重复下载不再重复转写。
-"""
-import json
+"""视频号：元数据解析、贴链接统一入口（单条/批量共用）、失败口径与平台标签。"""
 from pathlib import Path
 
-import pytest
-
-from app import video_channel, watch_folder
+from app import video_channel
 
 VC_LINK = "https://weixin.qq.com/sph/AbC123xyz"
 
 
-# ---------- 元数据：链接解析 / 响应容错 / 记忆 ----------
+# ---------- 元数据：链接解析 / 响应容错 ----------
 
 def test_short_uri_from_links():
     assert video_channel.short_uri_from(VC_LINK) == "AbC123xyz"
@@ -30,94 +23,6 @@ def test_parse_feed_info_tolerant_to_field_names():
     assert meta["cover"].endswith("c.jpg") and meta["likes"] == "1.2万"
     assert video_channel.parse_feed_info({}) == {}
     assert video_channel.parse_feed_info({"a": 1}) == {}
-
-
-def test_remember_and_match(tmp_path, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
-    video_channel.remember({"title": "顶级智斗：如何用一把枪打赢一场仗", "author": "某号",
-                            "cover": "https://x/c.jpg", "short_uri": "AbC123xyz"})
-    # 下载器一般按标题命名文件
-    hit = video_channel.match("顶级智斗：如何用一把枪打赢一场仗.mp4")
-    assert hit and hit["author"] == "某号" and hit["cover"] == "https://x/c.jpg"
-    # 带前后缀（比如下载器加了 id）也能命中
-    assert video_channel.match("顶级智斗：如何用一把枪打赢一场仗_20260101.mp4")
-    # 不相干的文件名不该误匹配
-    assert video_channel.match("完全无关的另一个视频.mp4") is None
-    assert video_channel.match("短.mp4") is None
-
-
-def test_remember_dedupes_by_title(tmp_path, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
-    video_channel.remember({"title": "同一个标题", "author": "A"})
-    video_channel.remember({"title": "同一个标题", "author": "B"})
-    items = json.loads((tmp_path / "vc.json").read_text(encoding="utf-8"))["items"]
-    assert len(items) == 1 and items[0]["author"] == "B"
-
-
-# ---------- 监听目录：元数据替换文件名 + 重复下载去重 ----------
-
-def _video(tmp_path, name="片子.mp4", body=b"x" * 2048):
-    p = tmp_path / name
-    p.write_bytes(body)
-    return p
-
-
-def test_enqueue_uses_remembered_title(tmp_path, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
-    monkeypatch.setenv("TRANSCRIPT_WATCH_DEDUPE_FILE", str(tmp_path / "dd.json"))
-    monkeypatch.chdir(tmp_path)
-    video_channel.remember({"title": "顶上那场仗", "author": "某号", "cover": "https://x/c.jpg"})
-
-    enqueued = {}
-    monkeypatch.setattr(watch_folder, "start_file_task",
-                        lambda task, dst, model, src_name, ocr_frames=False, **kw:
-                        enqueued.update(task=task, src_name=src_name))
-    monkeypatch.setattr(watch_folder, "media_fingerprint", lambda p: "123:45.6")
-
-    src = _video(tmp_path, "顶上那场仗.mp4")
-    watch_folder._enqueue(src, "small", move_done=False)
-
-    assert enqueued["src_name"] == "顶上那场仗"          # 标题不再是文件名带扩展名
-    assert enqueued["task"].uploader == "某号"
-    assert enqueued["task"].cover == "https://x/c.jpg"
-    assert src.exists()                                  # move_done=False 不搬动
-
-
-def test_enqueue_skips_duplicate_content(tmp_path, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
-    dedupe = tmp_path / "dd.json"
-    monkeypatch.setenv("TRANSCRIPT_WATCH_DEDUPE_FILE", str(dedupe))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(watch_folder, "media_fingerprint", lambda p: "999:12.3")
-
-    calls = []
-    monkeypatch.setattr(watch_folder, "start_file_task",
-                        lambda *a, **k: calls.append(a))
-
-    # 第一次：正常入列并记下指纹
-    first = _video(tmp_path, "第一次.mp4")
-    watch_folder._enqueue(first, "small", move_done=False)
-    assert len(calls) == 1
-    assert json.loads(dedupe.read_text(encoding="utf-8"))["999:12.3"]
-
-    # 第二次：同内容（同指纹）→ 跳过转写
-    second = _video(tmp_path, "又下载了一次.mp4")
-    watch_folder._enqueue(second, "small", move_done=False)
-    assert len(calls) == 1, "重复文件不该再起转写任务"
-    assert watch_folder.status()["skipped_duplicate"] >= 1
-
-
-def test_dedupe_can_be_disabled(tmp_path, monkeypatch):
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
-    monkeypatch.setenv("TRANSCRIPT_WATCH_DEDUPE", "0")
-    monkeypatch.setenv("TRANSCRIPT_WATCH_DEDUPE_FILE", str(tmp_path / "dd.json"))
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(watch_folder, "media_fingerprint", lambda p: "777:7.7")
-    calls = []
-    monkeypatch.setattr(watch_folder, "start_file_task", lambda *a, **k: calls.append(a))
-    watch_folder._enqueue(_video(tmp_path, "a.mp4"), "small", move_done=False)
-    watch_folder._enqueue(_video(tmp_path, "b.mp4"), "small", move_done=False)
-    assert len(calls) == 2, "关掉去重后同一内容也要照常转写"
 
 
 # ---------- 转写进度提示 ----------
@@ -196,7 +101,6 @@ def test_process_channel_link_without_yuanbao_creates_card(monkeypatch, tmp_path
     from app import task_store, video_channel
     from app.models import TaskStatus
 
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
     monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "")
     monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
     calls: list = []
@@ -322,7 +226,6 @@ def test_channel_link_no_stream_keeps_card_with_bound_flag(monkeypatch, tmp_path
     from app import task_store, video_channel
     from app.models import TaskStatus
 
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
     monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
     monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
     n = {"calls": 0}
@@ -385,7 +288,6 @@ def test_batch_accepts_channel_link(monkeypatch, tmp_path):
     from app import batch as batch_mod, task_store
     from app.models import TaskStatus
 
-    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
     monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "")
     monkeypatch.setattr(video_channel, "fetch_feed_info",
                         lambda uri: {"title": "批量里的视频号", "author": "某号",

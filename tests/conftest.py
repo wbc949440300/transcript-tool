@@ -20,8 +20,6 @@ os.environ["TRANSCRIPT_ALERT_SERVERCHAN_KEY"] = ""
 os.environ["TRANSCRIPT_ALERT_WEBHOOK"] = ""
 os.environ["TRANSCRIPT_ALERT_NOTIFY"] = "0"
 os.environ["TRANSCRIPT_ALERT_QUIET_HOURS"] = ""    # 测试里不要静默，否则推不出去（该测的测不到）
-os.environ["TRANSCRIPT_WATCH_DEDUPE_FILE"] = os.path.join(_TMP, "watch_dedupe.json")
-os.environ["TRANSCRIPT_VC_META"] = os.path.join(_TMP, "video_channel_meta.json")
 
 # 测试里不要真的等待节流/批量间隔
 os.environ["TRANSCRIPT_THROTTLE_JITTER"] = "0"
