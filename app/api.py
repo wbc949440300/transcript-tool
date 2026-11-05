@@ -56,49 +56,6 @@ router = APIRouter()
 TMP_DIR = Path("tmp_uploads")
 TMP_DIR.mkdir(exist_ok=True)
 
-def _create_channel_link_task(raw: str, meta: dict):
-    """视频号「链接模式」（2026-11-04）：贴分享链接能拿到正文文案/作者/封面/互动数据，
-    但拿不到视频流（实测 get_feed_info 不返回 h264VideoInfo/h265VideoInfo/videoUrl，
-    且 CDN 直链是密文）→ 直接建成一条 SUCCESS 任务，前端出「链接模式」卡片。
-
-    口播语音转文字仍走原路：微信内播放 → 下载器注入按钮 → 落盘 → 自动入队。
-    """
-    task_id = gen_task_id()
-    desc = (meta.get("description") or "").strip()
-    title = (meta.get("title") or "").strip() or desc[:40] or "视频号作品"
-    task = TaskDetail(
-        taskId=task_id,
-        taskType="videochannel",
-        status=TaskStatus.PENDING,
-        errorMessage="作品内容提取中...",
-        title=title,
-        content=desc,
-        textContent=desc,
-        cover=meta.get("cover") or None,
-        platform="视频号",
-        uploader=meta.get("author") or None,
-        webpageUrl=raw,
-        channelMeta={
-            "likes": meta.get("likes") or "",
-            "favCount": meta.get("favCount") or "",
-            "forwardCount": meta.get("forwardCount") or "",
-            "commentCount": meta.get("commentCount") or "",
-            "publishAt": meta.get("publishAt") or "",
-            "location": meta.get("location") or "",
-            "headImg": meta.get("headImg") or "",
-            "tags": meta.get("tags") or [],
-            "shortUri": meta.get("short_uri") or "",
-            "dynamicExportId": meta.get("dynamicExportId") or "",
-            "isVideo": bool(meta.get("isVideo")),
-        },
-    )
-    store.create(task)
-    # update_status 到 SUCCESS 会自动写历史 + 归档文案（文案输出/ 目录）
-    store.update_status(task_id, TaskStatus.SUCCESS, title=title, content=desc,
-                        textContent=desc, cover=task.cover)
-    logger.info("视频号链接模式: %s → %s（正文 %d 字）", raw[:60], title[:20], len(desc))
-    return TaskCreated(data=TaskCreatedData(taskId=task_id))
-
 
 @router.post("/transcript/doTask", response_model=TaskCreated)
 async def create_task(req: CreateTaskRequest):
@@ -106,74 +63,18 @@ async def create_task(req: CreateTaskRequest):
         # 短链跳转是网络请求，放线程里，避免阻塞事件循环
         url, _platform = await asyncio.to_thread(normalize, req.workUrl)
     except LinkError as exc:
-        # 视频号：微信无网页可读接口；分享链接也不是下载器 API 能吃的资源 URL。
         raw = (req.workUrl or "").strip()
-        if ("weixin.qq.com/sph" in raw) or ("channels.weixin.qq.com" in raw):
-            # 视频流拿不到（只有微信客户端能播），但**元数据**能取：
-            # 用 finder-preview 的 get_feed_info 拿标题/作者/封面，顺带记住，
-            # 等文件经下载器落到监听目录时替换"文件名当标题"（2026-10-31 加）
-            from . import video_channel
+        # 视频号：微信无网页可读接口，normalize 不认微信域；走统一入口（与批量入口共用
+        # 同一函数，见 app/video_channel.py）：元宝直链下载优先，回落「链接模式」卡片
+        from . import video_channel
 
-            meta: dict = {}
-            try:
-                uri = video_channel.short_uri_from(raw)
-                if uri:
-                    meta = await asyncio.to_thread(video_channel.fetch_feed_info, uri)
-                    if meta:
-                        meta["short_uri"] = uri
-                        video_channel.remember(meta)
-            except Exception as exc:  # noqa: BLE001
-                logger.info("视频号元数据获取失败（忽略）: %s", exc)
-            # 2026-11-04 晚加：配了元宝登录态（cookies/yuanbao.txt）时，视频号链接可以
-            # 直接换到带凭证的 h264/h265 直链 —— 下载后复用「上传文件」同一条转写流水线，
-            # 任务平台仍记「视频号」，历史卡片照常能预览视频、抽帧 OCR。
-            # 没配 cookie / 换不到直链时，回落到下面的匿名元数据卡片（原行为不变）。
-            info: dict = {}
-            try:
-                if video_channel.yuanbao_cookie():
-                    info = await asyncio.to_thread(video_channel.resolve_video, raw)
-            except Exception as exc:  # noqa: BLE001
-                logger.info("视频号直链获取失败（回落到元数据卡片）: %s", exc)
-            if info.get("videoUrl"):
-                task_id = gen_task_id()
-                tmp = TMP_DIR / f"{task_id}.mp4"
-                try:
-                    await asyncio.to_thread(video_channel.download_media, info["videoUrl"], tmp)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("视频号视频下载失败（回落到元数据卡片）: %s", exc)
-                    tmp = None
-                if tmp is not None:
-                    src_name = (info.get("title") or "视频号视频").strip()[:80] + ".mp4"
-                    # 这条是"有视频文件"的任务（走 file_transcribe 流水线），taskType 必须是
-                    # file_transcript：前端把 videochannel 一律当「链接模式」卡片渲染（无 <video>），
-                    # 沿用 videochannel 会让下载成功的任务也只显示文案、不显示视频。
-                    task = TaskDetail(
-                        taskId=task_id,
-                        taskType="file_transcript",
-                        status=TaskStatus.PENDING,
-                        errorMessage="视频号视频获取中...",
-                        platform="视频号",
-                        webpageUrl=raw,
-                        title=src_name,
-                        cover=info.get("cover") or None,
-                    )
-                    store.create(task)
-                    from .file_transcribe import start_file_task
-
-                    start_file_task(task, tmp, req.whisperModel or "tiny", src_name,
-                                    ocr_frames=True, platform="视频号")
-                    return TaskCreated(data=TaskCreatedData(taskId=task_id))
-            if meta:
-                # 链接模式：视频流拿不到，但元数据（正文文案/作者/封面/互动数据）能拿到
-                # → 直接建成一条 SUCCESS 任务，前端渲染「视频号 · 链接模式」卡片
-                return _create_channel_link_task(raw, meta)
+        if video_channel.is_channel_share(raw):
+            task_id = await asyncio.to_thread(
+                video_channel.process_channel_link, raw, req.whisperModel or "tiny")
+            if task_id:
+                return TaskCreated(data=TaskCreatedData(taskId=task_id))
             return JSONResponse(status_code=400, content={
-                "code": 500,
-                "msg": "没取到该视频号作品的元数据（接口限流或链接已失效）。视频号链接不能直接解析，"
-                       "也不能直接提交给下载器 API：请在微信里打开视频号视频并播放，点击下载器注入的下载按钮；"
-                       "文件落到下载目录后本工具会自动转写。也可以抓包导出到「自动监听文件夹」。",
-                "data": None,
-            })
+                "code": 500, "msg": video_channel.CHANNEL_UNRESOLVABLE, "data": None})
         return JSONResponse(status_code=400, content={"code": 500, "msg": str(exc), "data": None})
 
     task_id = gen_task_id()

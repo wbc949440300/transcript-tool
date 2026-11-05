@@ -4,6 +4,7 @@
 文件落到监听目录后，用记住的元数据把"文件名当标题"换掉；同一条视频重复下载不再重复转写。
 """
 import json
+from pathlib import Path
 
 import pytest
 
@@ -176,34 +177,110 @@ def test_parse_feed_info_picture_post_is_not_video():
     assert video_channel.parse_feed_info(payload)["isVideo"] is False
 
 
-def test_channel_link_task_created_as_success(monkeypatch):
-    """贴链接 → 直接建成 SUCCESS 任务（taskType=videochannel），不启动任何下载。"""
-    from app import api
-    from app.models import TaskCreated
+# ---------- 「统一入口」：贴分享链接 → 建任务（单条 API 与批量共用，2026-11-05） ----------
 
-    seen: dict = {}
-    monkeypatch.setattr(api.store, "create",
-                        lambda task: seen.update(task=task))
-    monkeypatch.setattr(api.store, "update_status",
-                        lambda task_id, status, **fields: seen.update(
-                            status=status, fields=fields))
+_META = {
+    "title": "某条关于 AI 的短视频", "author": "AI.Easy",
+    "cover": "https://finder.video.qq.com/251/20304/stodownload?encfilekey=x",
+    "description": "某条关于 AI 的短视频。#DeepSeek",
+    "likes": "152", "favCount": "1080", "forwardCount": "909",
+    "commentCount": "148", "publishAt": "2026-11-02 14:20",
+    "location": "天津市", "headImg": "https://wx.qlogo.cn/head/0",
+    "tags": ["DeepSeek"], "short_uri": "ANc1wgtZqr",
+    "dynamicExportId": "export/UzFfBg", "isVideo": True,
+}
 
-    out = api._create_channel_link_task("https://weixin.qq.com/sph/ANc1wgtZqr", {
-        "title": "某条关于 AI 的短视频", "author": "AI.Easy",
-        "cover": "https://finder.video.qq.com/251/20304/stodownload?encfilekey=x",
-        "description": "某条关于 AI 的短视频。#DeepSeek",
-        "likes": "152", "favCount": "1080", "forwardCount": "909",
-        "commentCount": "148", "publishAt": "2026-11-02 14:20",
-        "location": "天津市", "headImg": "https://wx.qlogo.cn/head/0",
-        "tags": ["DeepSeek"], "short_uri": "ANc1wgtZqr",
-        "dynamicExportId": "export/UzFfBg", "isVideo": True,
-    })
 
-    assert isinstance(out, TaskCreated)
-    task = seen["task"]
+def test_process_channel_link_without_yuanbao_creates_card(monkeypatch, tmp_path):
+    """没配元宝：贴链接 → 直接建成 SUCCESS 任务（taskType=videochannel），不启动任何下载。"""
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    calls: list = []
+    monkeypatch.setattr(task_store.store, "create", lambda task: calls.append(("create", task)))
+    monkeypatch.setattr(task_store.store, "update_status",
+                        lambda task_id, status, **fields: calls.append(
+                            ("update", task_id, status, fields)))
+
+    task_id = video_channel.process_channel_link(VC_LINK, "tiny")
+
+    assert task_id
+    task = calls[0][1]
     assert task.taskType == "videochannel" and task.platform == "视频号"
     assert task.textContent == "某条关于 AI 的短视频。#DeepSeek"
-    assert task.channelMeta["shortUri"] == "ANc1wgtZqr"
+    assert task.channelMeta["shortUri"] == "AbC123xyz"   # 与贴入链接的 shortUri 一致
     assert task.channelMeta["tags"] == ["DeepSeek"] and task.channelMeta["isVideo"] is True
-    assert seen["status"].value == "SUCCESS"          # 秒成功，不排队
-    assert seen["fields"]["textContent"] == task.textContent
+    assert calls[-1][2] == TaskStatus.SUCCESS          # 秒成功，不排队
+    assert calls[-1][3]["textContent"] == task.textContent
+
+
+def test_process_channel_link_with_yuanbao_downloads(monkeypatch, tmp_path):
+    """配了元宝：贴链接 → 下载视频 → 走 file_transcribe 流水线（平台仍记视频号）。"""
+    import app.file_transcribe as ft
+    from app import task_store, video_channel
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.chdir(tmp_path)                        # tmp_uploads 落在临时目录
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    monkeypatch.setattr(video_channel, "resolve_video",
+                        lambda raw: {"videoUrl": "https://x/v.mp4", "title": "元宝下的片子",
+                                     "cover": "https://x/c.jpg"})
+
+    def fake_download(url, dest, timeout=180.0):
+        Path(dest).write_bytes(b"mp4-bytes")
+        return Path(dest)
+
+    monkeypatch.setattr(video_channel, "download_media", fake_download)
+    started: dict = {}
+    monkeypatch.setattr(ft, "start_file_task",
+                        lambda task, tmp, model, src, **kw: started.update(
+                            taskId=task.taskId, model=model, src=src,
+                            platform=kw.get("platform")))
+
+    task_id = video_channel.process_channel_link(VC_LINK, "small")
+
+    assert task_id == started["taskId"]
+    task = task_store.store.get(task_id)
+    assert task.taskType == "file_transcript" and task.platform == "视频号"
+    assert task.title == "元宝下的片子.mp4"
+    assert started["platform"] == "视频号" and started["model"] == "small"
+    assert started["src"] == "元宝下的片子.mp4"
+
+
+def test_process_channel_link_unresolvable(monkeypatch):
+    """元数据拿不到、也没配元宝 → 返回 None（调用方给出 CHANNEL_UNRESOLVABLE 提示）。"""
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: {})
+    assert video_channel.process_channel_link(VC_LINK, "tiny") is None
+    assert "元数据" in video_channel.CHANNEL_UNRESOLVABLE
+
+
+def test_batch_accepts_channel_link(monkeypatch, tmp_path):
+    """批量入口：视频号链接不再 FAILURE，复用占位任务建成链接模式卡片。"""
+    import app.archive as archive_mod
+    from app import batch as batch_mod, task_store
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "")
+    monkeypatch.setattr(video_channel, "fetch_feed_info",
+                        lambda uri: {"title": "批量里的视频号", "author": "某号",
+                                     "description": "批量正文内容"})
+    # SUCCESS 会自动落历史 + 归档文案：测试里拦掉，别写真实库与 文案输出/
+    monkeypatch.setattr(task_store.history_store, "save", lambda t: None)
+    monkeypatch.setattr(task_store.history_store, "trim", lambda *a, **k: None)
+    monkeypatch.setattr(archive_mod, "save_text_file", lambda t: None)
+
+    batch_mod.start_batch("batch_vc", [VC_LINK], "tiny")
+    for th in list(batch_mod._BATCH_THREADS):
+        th.join(timeout=10)
+
+    items = task_store.store.get_batch("batch_vc")
+    assert items and items[0].status == TaskStatus.SUCCESS
+    assert items[0].taskType == "videochannel" and items[0].platform == "视频号"
+    assert items[0].batchId == "batch_vc" and items[0].index == 0
+    assert items[0].textContent == "批量正文内容"

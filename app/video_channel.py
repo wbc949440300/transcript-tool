@@ -575,3 +575,139 @@ def match(filename: str) -> Optional[dict]:
             logger.info("文件名命中视频号元数据: %s → %s", filename[:30], item.get("title", "")[:24])
             return item
     return None
+
+
+# ---------- 统一入口：贴一条视频号链接 → 建任务（单条 API 与批量共用） ----------
+#
+# 2026-11-05 起 api 单条提交与批量提取都走 process_channel_link：此前这段逻辑
+# 内联在 api.py 的 LinkError 分支里，批量入口（batch.py）没接，批量里的视频号
+# 链接会直接 FAILURE「暂不支持」。抽成同步函数放这里，两个入口共用同一份流程，
+# 以后加能力只改这一处。
+
+# 连元数据都拿不到时给用户的提示（api 400 与批量 FAILURE 共用，别改口径）
+CHANNEL_UNRESOLVABLE = ("没取到该视频号作品的元数据（接口限流或链接已失效）。"
+                        "视频号链接不能直接解析，也不能直接提交给下载器 API："
+                        "请在微信里打开视频号视频并播放，点击下载器注入的下载按钮；"
+                        "文件落到下载目录后本工具会自动转写。也可以抓包导出到「自动监听文件夹」。")
+
+
+def is_channel_share(url: str) -> bool:
+    """视频号分享页/预览页链接（单条与批量入口共用的判定）。"""
+    raw = (url or "").strip()
+    return ("weixin.qq.com/sph" in raw) or ("channels.weixin.qq.com" in raw)
+
+
+def process_channel_link(raw: str, whisper_model: str = "tiny",
+                         task: Optional[object] = None) -> Optional[str]:
+    """视频号分享链接统一处理（同步；API 用 to_thread 调，批量在 worker 线程直接调）。
+
+    流程：配了元宝登录态优先「换直链 → 下载 → 转写」（file_transcribe 流水线）；
+    没配或任一步失败回落「链接模式」元数据卡片；连元数据都拿不到返回 None。
+    task 传批量已登记的占位任务则原地复用（改成实际类型并带上真实标题/封面），
+    传 None 就新建任务（单条提交）。返回 taskId，不可解析返回 None。
+    """
+    from .models import TaskDetail, TaskStatus
+    from .task_store import store
+    from .utils import gen_task_id
+
+    meta: dict = {}
+    uri = short_uri_from(raw)
+    if uri:
+        try:
+            meta = fetch_feed_info(uri)
+            if meta:
+                meta["short_uri"] = uri
+                remember(meta)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("视频号元数据获取失败（忽略）: %s", exc)
+
+    info: dict = {}
+    try:
+        if yuanbao_cookie():
+            info = resolve_video(raw)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("视频号直链获取失败（回落到元数据卡片）: %s", exc)
+
+    if info.get("videoUrl"):
+        task_id = task.taskId if task is not None else gen_task_id()
+        tmp_dir = Path("tmp_uploads")
+        tmp_dir.mkdir(exist_ok=True)
+        tmp = tmp_dir / f"{task_id}.mp4"
+        try:
+            download_media(info["videoUrl"], tmp)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("视频号视频下载失败（回落到元数据卡片）: %s", exc)
+            tmp = None
+        if tmp is not None:
+            src_name = (info.get("title") or "视频号视频").strip()[:80] + ".mp4"
+            cover = info.get("cover") or None
+            if task is None:
+                task = TaskDetail(
+                    taskId=task_id, taskType="file_transcript", status=TaskStatus.PENDING,
+                    errorMessage="视频号视频获取中...", platform="视频号", webpageUrl=raw,
+                    title=src_name, cover=cover)
+                store.create(task)
+            else:
+                # 批量占位任务原地复用：换成 file_transcript 类型并带上真实标题/封面
+                store.update_status(task_id, TaskStatus.PENDING,
+                                    taskType="file_transcript", platform="视频号",
+                                    title=src_name, cover=cover,
+                                    errorMessage="视频号视频获取中...")
+            from .file_transcribe import start_file_task
+
+            start_file_task(task, tmp, whisper_model, src_name,
+                            ocr_frames=True, platform="视频号")
+            return task_id
+
+    if meta:
+        return _create_link_mode_task(raw, meta, task)
+    return None
+
+
+def _create_link_mode_task(raw: str, meta: dict, task: Optional[object] = None) -> str:
+    """视频号「链接模式」（2026-11-04）：贴分享链接能拿到正文文案/作者/封面/互动数据，
+    但拿不到视频流（实测 get_feed_info 不返回 h264VideoInfo/h265VideoInfo/videoUrl，
+    且 CDN 直链是密文）→ 直接建成一条 SUCCESS 任务，前端出「链接模式」卡片。
+
+    口播语音转文字仍走原路：微信内播放 → 下载器注入按钮 → 落盘 → 自动入队。
+    task 传占位任务则原地复用（批量入口）。返回 taskId。
+    """
+    from .models import TaskDetail, TaskStatus
+    from .task_store import store
+    from .utils import gen_task_id
+
+    desc = (meta.get("description") or "").strip()
+    title = (meta.get("title") or "").strip() or desc[:40] or "视频号作品"
+    channel_meta = {
+        "likes": meta.get("likes") or "",
+        "favCount": meta.get("favCount") or "",
+        "forwardCount": meta.get("forwardCount") or "",
+        "commentCount": meta.get("commentCount") or "",
+        "publishAt": meta.get("publishAt") or "",
+        "location": meta.get("location") or "",
+        "headImg": meta.get("headImg") or "",
+        "tags": meta.get("tags") or [],
+        "shortUri": meta.get("short_uri") or "",
+        "dynamicExportId": meta.get("dynamicExportId") or "",
+        "isVideo": bool(meta.get("isVideo")),
+    }
+    if task is None:
+        task_id = gen_task_id()
+        store.create(TaskDetail(
+            taskId=task_id, taskType="videochannel", status=TaskStatus.PENDING,
+            errorMessage="作品内容提取中...", title=title, content=desc,
+            textContent=desc, cover=meta.get("cover") or None, platform="视频号",
+            uploader=meta.get("author") or None, webpageUrl=raw,
+            channelMeta=channel_meta))
+    else:
+        task_id = task.taskId
+        store.update_status(task_id, TaskStatus.PENDING, taskType="videochannel",
+                            title=title, content=desc, textContent=desc,
+                            cover=meta.get("cover") or None, platform="视频号",
+                            uploader=meta.get("author") or None,
+                            channelMeta=channel_meta, errorMessage="作品内容提取中...")
+    # update_status 到 SUCCESS 会自动写历史 + 归档文案（文案输出/ 目录）
+    store.update_status(task_id, TaskStatus.SUCCESS, title=title, content=desc,
+                        textContent=desc, cover=meta.get("cover") or None)
+    logger.info("视频号链接模式: %s → %s（正文 %d 字）", raw[:60], title[:20], len(desc))
+    return task_id

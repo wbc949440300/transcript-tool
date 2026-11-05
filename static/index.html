@@ -575,7 +575,7 @@ const views = {
 
   batch(){
     return '<div class="hero"><h1>批量提取文案</h1>'
-      +'<p>一次粘贴多条链接或整段分享文案，自动排队逐个提取（支持抖音 / 小红书 / 快手 / B站；视频号暂不支持）</p></div>'
+      +'<p>一次粘贴多条链接或整段分享文案，自动排队逐个提取（支持抖音 / 小红书 / 快手 / B站 / 视频号；视频号需元宝登录态才下载视频，未登录只出文案卡片）</p></div>'
       +'<div class="card">'
       +'<label>链接列表（每行一条）</label>'
       +'<textarea id="burls" rows="6" placeholder="每行一条链接或整段分享文案"></textarea>'
@@ -583,7 +583,7 @@ const views = {
       +  '<div class="hint-row"><span class="hint-tag">抖音</span><code>https://v.douyin.com/xxxx/</code></div>'
       +  '<div class="hint-row"><span class="hint-tag">B站</span><code>https://www.bilibili.com/video/BVxxxx…</code></div>'
       +  '<div class="hint-row"><span class="hint-tag">小红书</span><code>https://www.xiaohongshu.com/explore/xxxx…</code></div>'
-      +  '<div class="hint-row"><span class="hint-note">每行一条；也支持快手、B站，可直接粘贴整段分享文案</span></div>'
+      +  '<div class="hint-row"><span class="hint-note">每行一条；也支持快手、B站、视频号，可直接粘贴整段分享文案</span></div>'
       +'</div>'
       +'<div class="row">'
       +'<select id="bwhisper"><option value="tiny">tiny · 最快（准确率较低）</option><option value="small">small · 推荐（又快又准）</option><option value="medium" selected>medium · 更准（速度约慢 3 倍，默认）</option><option value="large-v3">large-v3 · 最准（最慢）</option></select><span class="h-sub">首次使用会自动下载该模型（75MB ~ 3GB，越大越准也越慢）</span>'

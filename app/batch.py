@@ -45,6 +45,22 @@ def start_batch(batch_id: str, urls: list[str], whisper_model: str = "base") -> 
             if not url:
                 store.update_status(task.taskId, TaskStatus.FAILURE, errorMessage="空链接")
                 continue
+            # 视频号链接不走 normalize（它不认微信域）：进统一入口（与单条提交共用同一函数，
+            # 见 app/video_channel.py）—— 元宝直链下载 / 元数据卡片二选一；
+            # 占位任务原地复用，批量结构保持完整（2026-11-05 加）
+            from .video_channel import (CHANNEL_UNRESOLVABLE, is_channel_share,
+                                        process_channel_link)
+
+            if is_channel_share(url):
+                try:
+                    ok = process_channel_link(url, whisper_model, task=task)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("批量视频号处理失败: %s", exc)
+                    ok = None
+                if not ok:
+                    store.update_status(task.taskId, TaskStatus.FAILURE,
+                                        errorMessage=CHANNEL_UNRESOLVABLE)
+                continue
             # 逐条归一化（短链跳转在后台完成，不阻塞接口）
             try:
                 fixed, _ = normalize(url)
