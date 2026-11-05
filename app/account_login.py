@@ -25,7 +25,9 @@ logger = logging.getLogger("account_login")
 
 ROOT = Path(__file__).resolve().parent.parent
 _ACCOUNT_RE = re.compile(r"^account_[0-9]{1,2}$")
+# 顺序即账号页展示顺序：视频号扫码授权放第一（「贴链接直接下载」要用它换凭证，先看到它）
 PLATFORMS: tuple[tuple[str, str], ...] = (
+    ("yuanbao", "视频号"),
     ("douyin", "抖音"), ("kuaishou", "快手"), ("xiaohongshu", "小红书"), ("bilibili", "B站"),
 )
 _LOCK = threading.Lock()
@@ -119,6 +121,31 @@ def _cookie_file_usable(path: Path) -> bool:
             return False
 
 
+def _cookie_expiries(path: Path) -> dict:
+    """Netscape cookie 文件里的过期时间（name → unix 时间戳；会话 cookie 记 0）。
+
+    ★ 2026-11-05：用户质疑界面上「长期有效」说得太满（hy_token 实际 60 天就到期）。
+    与其在文案里写猜的数字，不如直接从 cookie 文件读真实过期时间并显示。
+    """
+    out: dict = {}
+    try:
+        for line in path.read_text("utf-8", "replace").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            f = s.split("\t")
+            if len(f) < 7:
+                continue
+            try:
+                exp = int(f[4])
+            except ValueError:
+                exp = 0
+            out[f[5]] = exp
+    except Exception:  # noqa: BLE001
+        return {}
+    return out
+
+
 def _row(platform: str, account: str) -> dict:
     path = _cookie_path(platform, account)
     prof = _profile_dir(platform, account)
@@ -137,6 +164,16 @@ def _row(platform: str, account: str) -> dict:
         row["logged_at"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
         age = time.time() - st.st_mtime
         row["days_ago"] = int(age // 86400)
+        # 登录凭证的真实过期时间：元宝看 hy_token/hy_user（≈60 天），其它平台取最早的一个。
+        expiries = _cookie_expiries(path)
+        names = ("hy_token", "hy_user") if platform == "yuanbao" else ()
+        now = time.time()
+        live = [v for k, v in expiries.items() if v > now and (not names or k in names)]
+        if live:
+            ts = min(live)
+            row["expires_at"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+            row["days_left"] = int((ts - now) // 86400)
+            row["expiring"] = row["days_left"] <= 7
         # 友好相对时间（2026-11-03）：1 小时内按分钟、1 天内按小时、超过 1 天才按天。
         # 原来只给天数，刚登录完也显示"0 天前"，没有信息量。
         if age < 60:
@@ -194,7 +231,9 @@ def accounts_status() -> dict:
             "label": label,
             "accounts": rows,
             "logged_in_count": len(used),
-            "note": "匿名即可，无需登录" if key == "kuaishou" else "",
+            "note": ("匿名即可，无需登录" if key == "kuaishou"
+                     else "视频号下载用它换凭证：点登录会打开元宝网页，微信扫码一次，凭证有效期约 60 天（腾讯定的），到期会提示重扫" if key == "yuanbao"
+                     else ""),
         }
     return out
 

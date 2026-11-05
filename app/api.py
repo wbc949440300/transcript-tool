@@ -124,6 +124,45 @@ async def create_task(req: CreateTaskRequest):
                         video_channel.remember(meta)
             except Exception as exc:  # noqa: BLE001
                 logger.info("视频号元数据获取失败（忽略）: %s", exc)
+            # 2026-11-04 晚加：配了元宝登录态（cookies/yuanbao.txt）时，视频号链接可以
+            # 直接换到带凭证的 h264/h265 直链 —— 下载后复用「上传文件」同一条转写流水线，
+            # 任务平台仍记「视频号」，历史卡片照常能预览视频、抽帧 OCR。
+            # 没配 cookie / 换不到直链时，回落到下面的匿名元数据卡片（原行为不变）。
+            info: dict = {}
+            try:
+                if video_channel.yuanbao_cookie():
+                    info = await asyncio.to_thread(video_channel.resolve_video, raw)
+            except Exception as exc:  # noqa: BLE001
+                logger.info("视频号直链获取失败（回落到元数据卡片）: %s", exc)
+            if info.get("videoUrl"):
+                task_id = gen_task_id()
+                tmp = TMP_DIR / f"{task_id}.mp4"
+                try:
+                    await asyncio.to_thread(video_channel.download_media, info["videoUrl"], tmp)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("视频号视频下载失败（回落到元数据卡片）: %s", exc)
+                    tmp = None
+                if tmp is not None:
+                    src_name = (info.get("title") or "视频号视频").strip()[:80] + ".mp4"
+                    # 这条是"有视频文件"的任务（走 file_transcribe 流水线），taskType 必须是
+                    # file_transcript：前端把 videochannel 一律当「链接模式」卡片渲染（无 <video>），
+                    # 沿用 videochannel 会让下载成功的任务也只显示文案、不显示视频。
+                    task = TaskDetail(
+                        taskId=task_id,
+                        taskType="file_transcript",
+                        status=TaskStatus.PENDING,
+                        errorMessage="视频号视频获取中...",
+                        platform="视频号",
+                        webpageUrl=raw,
+                        title=src_name,
+                        cover=info.get("cover") or None,
+                    )
+                    store.create(task)
+                    from .file_transcribe import start_file_task
+
+                    start_file_task(task, tmp, req.whisperModel or "tiny", src_name,
+                                    ocr_frames=True, platform="视频号")
+                    return TaskCreated(data=TaskCreatedData(taskId=task_id))
             if meta:
                 # 链接模式：视频流拿不到，但元数据（正文文案/作者/封面/互动数据）能拿到
                 # → 直接建成一条 SUCCESS 任务，前端渲染「视频号 · 链接模式」卡片
@@ -855,7 +894,12 @@ def media_frame(taskId: str = "", i: int = 0, n: int = 5):
                 frames: list = []
                 for u in urls[:3]:        # 同 /media/proxy 的理由：一条不通就换下一条
                     if u.startswith("file://"):
-                        u = u[len("file://"):]
+                        # file://video.mp4 指的是 tasks/<taskId>/video.mp4；直接剥前缀会得到相对路径，
+                        # ffmpeg 在服务进程的 CWD 下找不到 → 报 Error opening input（本地文件抽帧全失败的根因）
+                        local = tdir / u[len("file://"):]
+                        if not local.is_file():
+                            continue
+                        u = str(local)
                     frames = grab_thumbnails(u, dur, referer, n=n, out_dir=cache)
                     if frames:
                         break

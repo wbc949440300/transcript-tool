@@ -27,6 +27,8 @@ import logging
 import os
 import re
 import time
+import urllib.error
+import urllib.parse
 from pathlib import Path
 from typing import Optional
 
@@ -178,6 +180,330 @@ def fetch_feed_info(short_uri: str, timeout: float = 20.0) -> dict:
                     meta["title"][:20], meta["author"][:12],
                     "有" if meta["cover"] else "无", len(meta.get("description") or ""))
     return meta
+
+
+# ---------- 元宝（yuanbao）换凭证 → 视频号直链 ----------
+#
+# 2026-11-04 实测结论：finder-preview 的 get_feed_info 用 shortUri 只能拿到
+# 文字/封面/互动数据，**永远不给 videoUrl**；要拿 h264/h265 直链必须同时带
+# generalToken + exportId 这对凭证。这对凭证由腾讯元宝的解析接口签发（需登录元宝），
+# 所以整条链路是：
+#   1) POST yuanbao get_parse_result  → playable_url（query 里带 token / eid）
+#   2) POST finder-preview get_feed_info（body 用 exportId + generalToken）
+#   3) GET 直链 → 若响应头有 X-enclen，前 N 字节用 ISAAC64(decodeKey) 做 XOR 解密
+# 没配 cookies/yuanbao.txt 时本段全部不参与，调用方回落到原来的匿名元数据卡片。
+
+YUANBAO_PARSE_API = "https://yuanbao.tencent.com/api/weixin/get_parse_result"
+_UA_CHANNELS = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+_UA_YUANBAO = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
+
+# 元宝前端固定头（2026-11 抓自 yuanbao.tencent.com/chat/<agentid>/<conv>；
+# 换版本时只需要动这里，业务参数只有 cookie + body）
+_YB_HEADERS = {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "content-type": "application/json",
+    "origin": "https://yuanbao.tencent.com",
+    "referer": "https://yuanbao.tencent.com/chat/naQivTmsDa/cf4d0079-ed1b-4c55-a3f3-2ca1379727d1",
+    "user-agent": _UA_YUANBAO,
+    "t-userid": "b9575f6b0a8c4a55a08096904a5ef20a",
+    "x-agentid": "naQivTmsDa/cf4d0079-ed1b-4c55-a3f3-2ca1379727d1",
+    "x-commit-tag": "72282a0d",
+    "x-device-id": "1921b001708100d7fa31002b9646bd0cc15a3e2e1f",
+    "x-hy92": "e963067ffa31002b9646bd0c03000008b1951a",
+    "x-hy93": "1921b001708100d7fa31002b9646bd0cc15a3e2e1f",
+    "x-id": "b9575f6b0a8c4a55a08096904a5ef20a",
+    "x-instance-id": "5",
+    "x-language": "zh-CN",
+    "x-os_version": "Mac OS(10.15.7)-Blink",
+    "x-platform": "mac",
+    "x-requested-with": "XMLHttpRequest",
+    "x-source": "web",
+    "x-web-third-source": "main",
+    "x-webdriver": "0",
+    "x-webversion": "2.69.0",
+}
+
+_CH_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Content-Type": "application/json",
+    "Origin": "https://channels.weixin.qq.com",
+    "User-Agent": _UA_CHANNELS,
+    "sec-ch-ua-mobile": "?0",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+}
+
+_MASK64 = (1 << 64) - 1
+
+
+class _Isaac64:
+    """Go rand.RandCtx64 的移植（微信视频号媒体流 XOR 掩码）。"""
+
+    GOLDEN = 0x9E3779B97F4A7C13
+
+    def __init__(self, key: int):
+        self.cnt = 255
+        self.seed = [0] * 256
+        self.mm = [0] * 256
+        self.aa = self.bb = self.cc = 0
+        self.seed[0] = key & _MASK64
+        self._init()
+
+    @staticmethod
+    def _mix(v):
+        a, b, c, d, e, f, g, h = v
+        a -= e; f ^= h >> 9
+        h += a; b -= f
+        g ^= a << 9; a += b
+        c -= g; h ^= b >> 23
+        b += c; d -= h
+        a ^= c << 15; c += d
+        e -= a; b ^= d >> 14
+        d += e; f -= b
+        c ^= e << 20; e += f
+        g -= c; d ^= f >> 17
+        f += g; h -= d
+        e ^= g << 14; g += h
+        return [a & _MASK64, b & _MASK64, c & _MASK64, d & _MASK64,
+                e & _MASK64, f & _MASK64, g & _MASK64, h & _MASK64]
+
+    def _init(self):
+        v = [self.GOLDEN] * 8
+        for _ in range(4):
+            v = self._mix(v)
+        for i in range(0, 256, 8):
+            v = [(v[j] + self.seed[i + j]) & _MASK64 for j in range(8)]
+            v = self._mix(v)
+            self.mm[i:i + 8] = v
+        for i in range(0, 256, 8):
+            v = [(v[j] + self.mm[i + j]) & _MASK64 for j in range(8)]
+            v = self._mix(v)
+            self.mm[i:i + 8] = v
+        self._isaac64()
+
+    def _isaac64(self):
+        self.cc = (self.cc + 1) & _MASK64
+        self.bb = (self.bb + self.cc) & _MASK64
+        aa = self.aa
+        for i in range(256):
+            r = i % 4
+            if r == 0:
+                aa = (~(aa ^ ((aa << 21) & _MASK64))) & _MASK64
+            elif r == 1:
+                aa = (aa ^ (aa >> 5)) & _MASK64
+            elif r == 2:
+                aa = (aa ^ ((aa << 12) & _MASK64)) & _MASK64
+            else:
+                aa = (aa ^ (aa >> 33)) & _MASK64
+            aa = (aa + self.mm[(i + 128) % 256]) & _MASK64
+            x = self.mm[i]
+            y = (self.mm[(x >> 3) % 256] + aa + self.bb) & _MASK64
+            self.mm[i] = y
+            self.bb = (self.mm[(y >> 11) % 256] + x) & _MASK64
+            self.seed[i] = self.bb
+        self.aa = aa
+
+    def next64(self) -> int:
+        r = self.seed[self.cnt]
+        if self.cnt == 0:
+            self._isaac64()
+            self.cnt = 255
+        else:
+            self.cnt -= 1
+        return r
+
+
+def decrypt_xor(buf: bytearray, enc_len: int, key: int) -> bytearray:
+    """前 enc_len 字节用 ISAAC64(key) 的大端字节流逐字节 XOR（原地）。"""
+    if not buf or enc_len <= 0:
+        return buf
+    inst = _Isaac64(key)
+    limit = min(enc_len, len(buf))
+    i = 0
+    while i < limit:
+        kb = inst.next64().to_bytes(8, "big")
+        for j in range(8):
+            if i + j >= limit:
+                return buf
+            buf[i + j] ^= kb[j]
+        i += 8
+    return buf
+
+
+def yuanbao_cookie() -> str:
+    """读 cookies/yuanbao.txt（Netscape 或 `a=b; c=d` 都认），返回 Cookie 头。"""
+    try:
+        from .utils import COOKIE_DIR
+    except Exception:  # noqa: BLE001
+        COOKIE_DIR = Path("cookies")
+    path = COOKIE_DIR / "yuanbao.txt"
+    if not path.is_file() or path.stat().st_size <= 0:
+        return ""
+    pairs: list[str] = []
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "\t" in line:
+            f = line.split("\t")
+            if len(f) >= 7 and f[5] and f[6]:
+                pairs.append(f"{f[5].strip()}={f[6].strip()}")
+        elif "=" in line:
+            pairs.append(line)
+    return "; ".join(pairs)
+
+
+def _normalize_share_url(text: str) -> str:
+    m = re.search(r"https?://[^\s\"'<>，。；、）)\]]+", text or "")
+    if not m:
+        return ""
+    return m.group(0).rstrip("),.;，。")
+
+
+def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> dict:
+    import urllib.request
+
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+                                 method="POST", headers=headers)
+    with http_opener("").open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", "ignore"))
+
+
+def _pick_video(feed: dict) -> tuple[str, str]:
+    """按页面同款优先级挑直链：h264 → h265 → 通用 videoUrl。"""
+    for key, label in (("h264VideoInfo", "h264"), ("h265VideoInfo", "h265")):
+        url = ((feed.get(key) or {}).get("videoUrl") or "").strip()
+        if url:
+            return url, label
+    url = (feed.get("videoUrl") or "").strip()
+    return (url, "default") if url else ("", "")
+
+
+def _clean_video_url(url: str) -> str:
+    """原样保留直链（只去首尾空白）。
+
+    2026-11-05 实测：把 query 精简成只剩 encfilekey+token 会被 CDN 判 400
+    （X-Errno -5103397）；`sign` / `basedata` / `m` / `uzid` / `hy` / `idx` /
+    `X-snsvideoflag` 都是签名的一部分，必须一起带着。
+    """
+    return (url or "").strip()
+
+
+def decode_key_of(url: str) -> int:
+    try:
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        return int(q.get("decodeKey", ["0"])[0] or 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def resolve_video(share_text: str, cookie: str = "", timeout: float = 25.0) -> dict:
+    """分享链接 → 正片直链 + 元数据。失败抛 RuntimeError（调用方回落到元数据卡片）。
+
+    cookie 为空时自动读 cookies/yuanbao.txt；两者都没有直接抛错。
+    """
+    link = _normalize_share_url(share_text)
+    if not link:
+        raise RuntimeError("没找到视频号分享链接")
+    cookie = (cookie or yuanbao_cookie()).strip()
+    if not cookie:
+        raise RuntimeError("没配置元宝登录态（cookies/yuanbao.txt），拿不到带凭证的直链")
+
+    throttle("yuanbao.tencent.com")
+    try:
+        parse = _post_json(YUANBAO_PARSE_API,
+                           {"type": "video_channel_url", "url": link, "scene": 1},
+                           {**_YB_HEADERS, "cookie": cookie}, timeout)
+    except urllib.error.HTTPError as exc:
+        # 401/403 = 登录态过期或被风控；其它 = 接口本身变了
+        raise RuntimeError(f"元宝接口 HTTP {exc.code}（元宝登录态可能已失效，重跑 "
+                           "login_cookie.py yuanbao 更新）") from exc
+    data = parse.get("data") or {}
+    playable = (data.get("playable_url") or "").strip()
+    if not playable:
+        raise RuntimeError("元宝没返回 playable_url："
+                           + str(parse.get("msg") or parse.get("errMsg") or parse)[:160])
+    q = urllib.parse.parse_qs(urllib.parse.urlsplit(playable).query)
+    token = (q.get("token") or [""])[0]
+    eid = (q.get("eid") or [""])[0] or (data.get("wx_export_id") or "")
+    if not token or not eid:
+        raise RuntimeError("元宝返回的凭证不全（缺 token 或 eid）")
+
+    rid = f"{int(time.time()):x}-{os.urandom(4).hex()}"
+    api = (INFO_API + f"?_rid={rid}"
+           "&_pageUrl=https:%2F%2Fchannels.weixin.qq.com%2Ffinder-preview%2Fpages%2Ffeed")
+    referer = ("https://channels.weixin.qq.com/finder-preview/pages/feed"
+               "?entry_card_type=48&comment_scene=39&appid=0"
+               f"&token={urllib.parse.quote(token, safe='')}"
+               f"&entry_scene=0&eid={urllib.parse.quote(eid, safe='')}")
+    throttle("channels.weixin.qq.com")
+    profile = _post_json(api, {"baseReq": {"generalToken": token}, "exportId": eid},
+                         {**_CH_HEADERS, "Referer": referer}, timeout)
+    if profile.get("errCode"):
+        raise RuntimeError(f"视频号返回 error: errCode={profile.get('errCode')} "
+                           f"{profile.get('errMsg') or ''}".strip())
+    feed = ((profile.get("data") or {}).get("feedInfo") or {})
+    url, codec = _pick_video(feed)
+    if not url:
+        raise RuntimeError("视频号没给视频直链（内容可能已删除或只有图片）")
+    meta = parse_feed_info(profile) or {}
+    meta.update({"videoUrl": _clean_video_url(url), "codec": codec,
+                 "shareUrl": link, "exportId": eid, "generalToken": token})
+    logger.info("视频号直链: codec=%s 标题=%s", codec, (meta.get("title") or "")[:20])
+    return meta
+
+
+def download_media(url: str, dest: Path, timeout: float = 180.0) -> Path:
+    """下正片到 dest；有 X-enclen 头就先解前 N 字节（ISAAC64），返回落盘路径。"""
+    import shutil
+    import urllib.request
+
+    if not url:
+        raise RuntimeError("没有可下载的直链")
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    req = urllib.request.Request(url, headers={
+        "User-Agent": _UA_CHANNELS,
+        # 实测：直链要带视频号 Referer，否则 403
+        "Referer": "https://channels.weixin.qq.com/",
+    })
+    throttle("channels.weixin.qq.com")
+    # 2026-11-05 实测：媒体代理（TRANSCRIPT_PROXY_MEDIA）对 finder.video.qq.com
+    # 常握手超时；这条 CDN 直连反而稳（curl --noproxy 200/3.8MB）。所以先按配置走，
+    # 失败立刻改直连重试一次，不把一次代理抖动算成"视频号下不了"。
+    last_err: Exception | None = None
+    for idx, opener in enumerate((http_opener("", media=True), http_opener("", proxy=""))):
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                enc_len = int(resp.headers.get("X-enclen") or resp.headers.get("x-enclen") or 0)
+                with open(part, "wb") as fh:
+                    shutil.copyfileobj(resp, fh, 1 << 20)
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            logger.warning("视频号媒体下载第 %d 次失败：%s: %s", idx + 1, type(exc).__name__, exc)
+    else:
+        raise RuntimeError(f"视频号媒体下载失败：{last_err}")
+    if enc_len > 0:
+        key = decode_key_of(url)
+        if key:
+            buf = bytearray(part.read_bytes()[:enc_len])
+            decrypt_xor(buf, enc_len, key)
+            with open(part, "r+b") as fh:
+                fh.seek(0)
+                fh.write(buf)
+            logger.info("视频号媒体已解密前 %d 字节", enc_len)
+        else:
+            logger.warning("响应带 X-enclen=%d 但直链里没有 decodeKey，按明文保存", enc_len)
+    part.replace(dest)
+    logger.info("视频号媒体已落盘: %s (%.1f MB)", dest.name, dest.stat().st_size / 1048576)
+    return dest
 
 
 # ---------- 记住元数据（供监听目录把"文件名"换成真标题） ----------

@@ -546,8 +546,15 @@ def main() -> int:
     else:
         zip_path = None
 
+    # 历史版本一律保留（用户 2026-11-04 明确要求：后续版本更新都要保留旧版本）。
+    # 这里只读目录、不做任何清理；任何涉及 dist 历史版本的删除都必须先单独问用户。
+    kept = sorted((p for p in DIST.glob("文案提取工具-v*") if p.is_dir() and p != stage),
+                  key=lambda p: p.stat().st_mtime)
+
     print("\n打包完成:")
     print(f"   文件夹: {stage}")
+    print(f"   历史版本: 已保留 {len(kept)} 个（dist 只增不删）"
+          + (f"，最新: {kept[-1].name}" if kept else ""))
     if zip_path is not None:
         print(f"   压缩包: {zip_path}  ({size / 1048576:.1f} MB)")
     else:

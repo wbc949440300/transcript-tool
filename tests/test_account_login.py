@@ -36,13 +36,14 @@ def account_cookie():
 
 def test_status_lists_default_and_accounts(account_cookie):
     st = al.accounts_status()
-    assert set(st) == {"douyin", "kuaishou", "xiaohongshu", "bilibili"}
+    assert set(st) == {"douyin", "kuaishou", "xiaohongshu", "bilibili", "yuanbao"}
     rows = st["douyin"]["accounts"]
     assert rows[0]["account"] == "（默认）"
     assert rows[0]["logged_in"] is True            # conftest 造的 cookies/douyin.txt
     assert any(r["account"] == "account_1" and r["logged_in"] for r in rows)
     assert st["douyin"]["logged_in_count"] >= 2
     assert st["kuaishou"]["note"]                  # 快手有"匿名即可"的提示
+    assert "视频号" in st["yuanbao"]["note"]        # 元宝：说明它只服务视频号贴链接下载
 
 
 def test_status_shows_profile_and_login_time(account_cookie):

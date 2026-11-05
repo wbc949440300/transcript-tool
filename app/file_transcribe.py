@@ -117,7 +117,8 @@ def _transcribe_file(path: Path, model_name: str = "tiny", on_progress=None) -> 
 
 
 def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name: str,
-                   ocr_frames: bool = False, notify: bool = False) -> None:
+                   ocr_frames: bool = False, notify: bool = False,
+                   platform: str = "本地文件") -> None:
     kept_video: Path | None = None
     try:
         store.update_status(task.taskId, TaskStatus.RUNNING)
@@ -176,7 +177,7 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
             task.taskId, TaskStatus.SUCCESS,
             title=task.title, textContent=task.textContent,
             content=task.content, errorMessage=_empty_text_note(task, asr=True),
-            platform="本地文件",
+            platform=platform,
             videoUrl=getattr(task, "videoUrl", None),
             videoUrlList=getattr(task, "videoUrlList", None),
             frameText=getattr(task, "frameText", None),
@@ -207,12 +208,13 @@ def _notify_done(ok: bool, title: str, chars: int = 0, note: str = "") -> None:
 
 
 def start_file_task(task: TaskDetail, tmp_file: Path, model_name: str, src_name: str,
-                    ocr_frames: bool = False, notify: bool = False) -> None:
+                    ocr_frames: bool = False, notify: bool = False,
+                    platform: str = "本地文件") -> None:
     import threading
     th = threading.Thread(
         target=_run_file_task,
         args=(task, tmp_file, model_name, src_name),
-        kwargs={"ocr_frames": ocr_frames, "notify": notify},
+        kwargs={"ocr_frames": ocr_frames, "notify": notify, "platform": platform},
         daemon=True,
     )
     th.start()

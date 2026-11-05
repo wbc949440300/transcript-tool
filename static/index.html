@@ -60,8 +60,12 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
 .msg.info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
 .msg.success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;}
 .loading{display:none;align-items:center;gap:.8rem;color:#6d28d9;font-weight:600;font-size:.9rem;margin-top:1rem;}
+/* ★ 2026-11-04：长进度文案（正在转写：0:02 / 1:11（预计还需约 3 分钟））会把 flex 里的
+   spinner 横向压扁成椭圆（实测 13.19x20）——环形图标必须 flex:0 0 auto 不参与收缩，
+   让文字自己换行。 */
+.loading>span{flex:1 1 auto;min-width:0;line-height:1.5;overflow-wrap:anywhere;}
 .loading.show{display:flex;}
-.spinner{width:20px;height:20px;border:3px solid #e9d5ff;border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;}
+.spinner{width:20px;height:20px;flex:0 0 auto;box-sizing:border-box;border:3px solid #e9d5ff;border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* 结果 */
 #result{display:none;margin-top:1.2rem;}
@@ -123,11 +127,12 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
 .input-hint .hint-note{color:#9ca3af;font-size:.72rem;}
 #vresult[data-stack] > .card{scroll-margin-top:76px;}
 /* 视频号页两列布局：左侧 1/3 列表，右侧 2/3 结果/流程 */
-.qq-layout{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:1.25rem;align-items:start;}
+.qq-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;align-items:start;}   /* 2026-11-05：单列满宽，原来左侧 330px 太窄 */
 /* 还没有任何结果时右侧是全空的，两栏会让左侧显得又窄又空 → 空白态居中单栏 */
-.qq-layout.qq-empty{grid-template-columns:minmax(0,760px);justify-content:center;}
+.qq-layout.qq-empty{grid-template-columns:minmax(0,1fr);}   /* 空结果时也占满整宽，别再缩成 760px */
 .qq-layout.qq-empty .qq-main{display:none;}
 .qq-side,.qq-main{display:flex;flex-direction:column;gap:1rem;min-width:0;}
+.qq-main{order:1;} .qq-side{order:2;}   /* 结果在上，流程/设置在下 */
 .qq-side .card,.qq-main .card{margin:0;}
 .qq-side .row{flex-wrap:wrap;}
 #vresult[data-stack]{display:flex;flex-direction:column;gap:1rem;}
@@ -267,7 +272,7 @@ a.ds-title:hover{color:var(--brand)}
 </div>
 
 <footer>
-  本项目为技术演示：yt-dlp 抓取视频元数据/字幕 + faster-whisper 离线语音转文字 + RapidOCR 图片文字识别。<br>
+  yt-dlp 抓取视频元数据/字幕 + faster-whisper 离线语音转文字 + RapidOCR 图片文字识别。<br>
   请仅用于你有权访问的内容，并遵守目标平台服务条款与版权。
 </footer>
 
@@ -396,7 +401,7 @@ const views = {
       +'· 登录必须<b>人工完成</b>：点「登录」会在本机弹出浏览器窗口，扫码或输密码，完成后自动保存<br>'
       +'· 每个账号一个独立 profile，互不串号；抓取端读的是<b>同一个</b> profile，不会"登录了却没用上"<br>'
       +'· 「验证」无窗口地跑一次检查，能发现登录态过期并顺带刷新 cookie<br>'
-      +'· 快手匿名即可，不登录也能抓（登录只影响受限内容）<br>'
+      +'· 快手匿名即可，不登录也能抓（登录只影响受限内容）<br>· 第一行「视频号」其实就是<b>元宝</b>账号：点「登录」会打开元宝网页，用微信扫码（也可用 QQ）扫一次，粘贴视频号链接就能直接下片；<b>凭证有效期约 2 个月</b>（腾讯那边给的 cookie 就是 60 天），到期后这一行会标红提醒重扫<br>'
       +'· <b>分发给别的电脑时不要拷贝 cookies/ 目录</b>：每台机器各自登录自己的账号，一个账号只在一台机器上用'
       +'</div></div>';
   },
@@ -427,35 +432,54 @@ const views = {
         +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://v.kuaishou.com/xxxx</code><span class="hint-note">或</span><code>https://www.kuaishou.com/f/xxxx</code></div>',
       bilibili:'<div class="hint-row"><span class="hint-tag">网页</span><code>https://www.bilibili.com/video/BVxxxx…</code></div>'
         +'<div class="hint-row"><span class="hint-tag">App 分享</span><code>https://b23.tv/xxxx</code></div>',
-      qqvideo:'<div class="hint-row"><span class="hint-tag">链接模式</span><span class="hint-note">贴视频号分享链接可直接取出<b>正文文案 / 作者 / 封面 / 互动数据</b>（视频流微信只发给客户端，拿不到）。</span></div>'
-        +'<div class="hint-row"><span class="hint-tag">口播转文字</span><span class="hint-note">仍需在微信里播放后点下载器注入的下载按钮，或抓包导出到下方监听目录。</span></div>',
+      qqvideo:'<div class="hint-row"><span class="hint-tag">分享链接</span><code>https://weixin.qq.com/sph/xxxx</code><span class="hint-note">整段分享文案也行</span></div>',
     };
     const nm=names[key]||'视频';
     const ph = '粘贴网页链接或 App 分享链接；也可直接粘贴整段分享文案';
     const hint = hints[key] ? '<div class="input-hint">'+hints[key]+'</div>' : '';
     if(key==='qqvideo'){
       return '<div class="hero"><h1>视频号视频文案提取</h1>'
-        +'<p>启动下载器 → 开始提取 → 微信里点「下载」→ 结果直接显示在本页</p></div>'
+        +'<p>微信扫码绑定一次，之后贴一条分享链接就自动下载视频并转写，结果显示在本页</p></div>'
         + hint
-        +'<div class="card">'
-        +'<div id="qqFlowBlock">'
-        +'<div class="qq-card-title"><b>提取流程</b><span>四步走完就出结果</span></div>'
-        +'<div id="extDlStatus" style="font-size:.82rem;color:var(--muted)">下载器检测中…</div>'
-        +'<div class="row" id="extDlActions" style="margin-top:.45rem"></div>'
-        +'<div style="display:flex;flex-direction:column;gap:.45rem;margin:.7rem 0;font-size:.88rem;line-height:1.55">'
-        +  '<div>1️⃣ 先点上方「<b>启动下载器</b>」（运行期间系统代理会指向本机，停止/退出后自动还原）</div>'
-        +  '<div>2️⃣ 再点下方「<b>开始提取</b>」（会开启文件监听）</div>'
-        +  '<div class="row" style="margin:.1rem 0 .2rem">'
-        +    '<button class="btn" id="qqStart">开始提取</button>'
-        +    '<span class="h-sub">点完「下载」后等它下载完即可（保持视频号页面开启）；本页同时会列出最近的归档文案</span>'
-        +  '</div>'
-        +  '<div>3️⃣ 在<b>微信</b>里打开视频号视频并播放 → 点页面注入的「<b>下载</b>」按钮，<b>等待下载完成</b></div>'
-        +  '<div>4️⃣ 下载完成后自动转写，<b>结果（预览/截图/全文）会显示在本页</b>；期间请保持微信视频号页面开启</div>'
+        // 2026-11-05 用户要求：没登录元宝就先在页面上出通知，提醒去登录（不是等提交后才报错）
+        +'<div class="msg error" id="qqLoginTip" style="display:none;margin:0 0 .8rem;line-height:1.8">'
+        +  '<b>还没绑定视频号下载凭证</b>：现在贴链接只能拿到标题 / 作者 / 正文，拿不到视频本身。<br>'
+        +  '点右边按钮去登录：会打开<b>元宝</b>网页，微信扫码一次即可（凭证约 60 天有效）。'
+        +  '<button class="btn sm ghost" id="qqGoLogin" style="margin-left:.45rem">去登录</button>'
+        +'</div>'
+        // 主路径：一个输入框 + 一个按钮（2026-11-05 改：原来四步流程降级成下面的折叠块）
+        +'<div class="card" id="qqLinkCard">'
+        +'<div class="qq-card-title"><b>方式 1 · 贴链接提取</b><span>贴链接 → 一键出视频和文案</span></div>'
+        +'<div class="row" style="margin-top:.45rem">'
+        +  '<input type="text" id="qqUrlInput" placeholder="粘贴视频号分享链接（微信里点「分享 → 复制链接」即可）" style="flex:1">'
+        +  '<button class="btn" id="qqLinkBtn">提取</button>'
+        +'</div>'
+        +'<div style="font-size:.78rem;color:var(--muted);margin-top:.5rem;line-height:1.75">'
+        +  '第一次用要先「<b>微信扫码绑定一次</b>」：到左侧「<b>账号</b>」页<b>最上面那一行（视频号 · 元宝登录）</b>点<b>登录</b>，页面会打开<b>元宝</b>，用微信扫一下。腾讯给的凭证<b>约 60 天</b>到期，到期后那一行会标红，重扫一次即可。<br>'
+        +  '没绑定时这里仍会给出该作品的标题 / 作者 / 正文，只是拿不到视频本身。<br>'
+        +  '还有一种方式：完全不想绑定账号时，用下面的「<b>方式 2 · 微信里点下载</b>」，不登录也能把视频取下来。'
         +'</div>'
         +'<div class="msg" id="vmsg"></div>'
         +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
         +'</div>'
-        +'<div id="qqStatusBlock">'
+        // 次路径：原来的四步流程 + 下载器状态，收进折叠块
+        +'<div class="card" id="qqLegacyHost">'
+        +'<details id="qqFlowBlock" style="font-size:.85rem;line-height:1.65">'
+        +'<summary style="cursor:pointer"><b>方式 2 · 微信里点「下载」</b>（另一种方式，不绑定任何账号，手动点一下）</summary>'
+        +'<div id="extDlStatus" style="font-size:.82rem;color:var(--muted);margin-top:.5rem">下载器检测中…</div>'
+        +'<div class="row" id="extDlActions" style="margin-top:.45rem"></div>'
+        +'<div style="display:flex;flex-direction:column;gap:.45rem;margin:.7rem 0;font-size:.88rem;line-height:1.55">'
+        +  '<div>1️⃣ 先点上方「<b>启动下载器</b>」（运行期间系统代理会指向本机，停止/退出后自动还原）</div>'
+        +  '<div>2️⃣ 再点下面「<b>开始提取</b>」（会开启文件监听）'
+        +  '<div class="row" style="margin:.35rem 0 .2rem">'
+        +    '<button class="btn" id="qqStart">开始提取</button>'
+        +    '<span class="h-sub">点完「下载」后等它下载完即可（保持视频号页面开启）；本页同时会列出最近的归档文案</span>'
+        +  '</div></div>'
+        +  '<div>3️⃣ 在<b>微信</b>里打开视频号视频并播放 → 点页面注入的「<b>下载</b>」按钮，<b>等待下载完成</b></div>'
+        +  '<div>4️⃣ 下载完成后自动转写，<b>结果（预览/截图/全文）会显示在本页</b>；期间请保持微信视频号页面开启</div>'
+        +'</div>'
+        +'</details>'
+        +'<div id="qqStatusBlock" style="margin-top:.6rem">'
         +'<div class="qq-card-title"><b>下载器与监听目录</b><span>下载器负责把微信里的视频取下来</span></div>'
         +'<div id="watchStatus" style="font-size:.82rem;color:var(--muted)">监听检测中…</div>'
         +'<div id="storagePathRow" style="margin-top:.45rem;font-size:.82rem;color:var(--muted);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">'
@@ -470,6 +494,7 @@ const views = {
         +'<div id="extDlTaskList" style="margin-top:.4rem;font-size:.78rem;color:var(--muted)">加载中…</div>'
         +'</div>'
         +'</div>'
+        +'</div>'   // qqLegacyHost：微信里点「下载」那条老流程整体收在这里
         +'<div id="qqLocalVideoBlock">'
         +'<div class="qq-card-title" style="justify-content:space-between">'
         +'<span style="display:flex;align-items:baseline;gap:.45rem;flex-wrap:wrap"><b>最近导入</b><span>本地视频 / 文件，点击打开结果</span></span>'
@@ -494,6 +519,7 @@ const views = {
         +'<div style="margin-top:.8rem;font-size:.75rem">'
         +'· 每条成功的文案会自动存一份到项目旁的「<b>文案输出</b>」文件夹（日期_标题.txt），可直接打开查看。<br>'
         +'· 下载器不再随工具自动启动（避免长期接管系统代理）；用视频号时点一次「启动下载器」。运行期间系统代理指向 127.0.0.1:2023（全机流量经它，停止后自动还原；服务退出时也会自动还原）。<br>'
+        +'· 想让「贴链接」直接下载视频（而不是只出元数据卡片）：到左侧「<b>账号</b>」页最上面那一行点<b>登录</b>，用微信扫码一次即可（等价于命令行 <code>python login_cookie.py yuanbao</code>）。<br>'
         +'· 下载时请让视频号页面保持打开（否则提示 socket 未初始化）。<br>'
         +'· 启动失败：看下载器窗口/托盘有无待确认弹窗，或查日志 %LocalAppData%\\Temp\\wx_channels_download\\app.log。<br>'
         +'· 其它方式：抓包导出 + 上面的手动监听；或 <a href="#" onclick="window.open(\'#/file/video\',\'_blank\');return false" style="text-decoration:underline">上传文件提取</a>；不想自动启动下载器：启动前设 TRANSCRIPT_EXT_DL_AUTOSTART=0。<br>'
@@ -501,10 +527,7 @@ const views = {
         +'</div>'
         +'</details>'
         +'</div>'
-        + (key==='qqvideo'
-            ? '<div id="qqResultTabs" class="row" style="display:none;gap:.4rem;flex-wrap:wrap;margin:1rem 0 .2rem;position:sticky;top:8px;z-index:40;background:rgba(255,255,255,.94);backdrop-filter:blur(6px);border-radius:10px;padding:.35rem .4rem"></div>'
-            : '')
-        +'<div id="vresult"'+(key==='qqvideo'?' data-stack="1"':'')+'></div>';
+        +'<div id="vresult"></div>';
     }
     return '<div class="hero"><h1>'+nm+'视频文案提取</h1>'
       +'<p>粘贴 '+nm+' 视频链接，自动提取标题、简介与口播文案</p></div>'
@@ -749,8 +772,6 @@ function renderChannelCard(d, into){
     +  '<span class="pill platform">视频号</span>'
     +  '<span class="pill" style="background:rgba(7,193,96,.12);color:#07c160;font-weight:600">链接模式</span>'
     +  (stats?'<span class="pill dur">'+stats+'</span>':'')
-    +  '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
-    +  '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>'
     +'</div>'
     +'<div class="result-title">'+title+'</div>'
     + ((d.uploader||m.headImg||sub.length)
@@ -764,6 +785,11 @@ function renderChannelCard(d, into){
     +'<div class="section-label">正文文案（作者发布时写的文字）</div>'
     +'<div class="transcript" data-copy-src="txt">'+(text||'(该作品没有正文文案)')+'</div>'
     + (tags?'<div class="row" style="gap:.35rem;margin-top:.5rem;flex-wrap:wrap">'+tags+'</div>' : '')
+    // 操作按钮跟视频卡片保持一致：正文读完后紧接着就是导出/复制，不占顶部
+    +'<div class="media-bar">'
+    +  '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
+    +  '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>'
+    +'</div>'
     +'<div class="msg show" style="font-size:.82rem;line-height:1.6">'
     +  '视频号只把播放地址发给<b>微信客户端</b>，网页链接取不到视频流，所以这里只有文案和封面。'
     +  '要<b>口播语音转文字</b>：在微信里打开这条视频并播放 → 点下载器注入的「下载」按钮 → '
@@ -831,17 +857,20 @@ function renderVideoResult(d, into){
     copy:'把上方的口播文案复制到剪贴板（复制的是当前显示的简/繁体版本）。',
   };
   const mediaTick=window.MEDIA_TICK?'&v='+window.MEDIA_TICK:'';
+  // 2026-11-05 布局调整：把「导出下载 / AI 纠错 / 生成笔记 / 复制全文」从顶部 meta 行挪到视频下方，
+  // 和「保存视频 / 刷新直链」放在同一条操作带上——直链过期时视线不用在页面上来回跳。
+  const actBtns = '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
+    + (window.AI_ENABLED ? '<button class="copy" data-ai-correct="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.correct)+'">AI 纠错</button>' : '')
+    + (window.AI_ENABLED ? '<button class="copy" data-ai-note="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.note)+'">生成笔记</button>' : '')
+    + '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>';
+  const hasVideo=!!(d.videoUrlList&&d.videoUrlList.length);
   const h='<div class="card" data-task-id="'+tidEsc+'">'
     +'<div class="meta">'
     +  '<span class="pill platform">'+platform+'</span>'
     +  (d.duration?'<span class="pill dur">时长 '+fmtDur(d.duration)+'</span>':'')
-    +  '<button class="copy" data-export-task="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.export)+'">导出下载</button>'
-    +  (window.AI_ENABLED ? '<button class="copy" data-ai-correct="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.correct)+'">AI 纠错</button>' : '')
-    +  (window.AI_ENABLED ? '<button class="copy" data-ai-note="'+tidEsc+'" data-tip="'+escapeHtml(TIPS.note)+'">生成笔记</button>' : '')
-    +  '<button class="copy" data-copy="txt" data-tip="'+escapeHtml(TIPS.copy)+'">复制全文</button>'
     +'</div>'
     +'<div class="result-title">'+title+'</div>'
-    +(d.videoUrlList&&d.videoUrlList.length
+    +(hasVideo
       ? '<div class="section-label">视频预览</div>'
         + (biliUrl
             ? '<div class="row" style="margin:.1rem 0 .45rem">'
@@ -858,13 +887,16 @@ function renderVideoResult(d, into){
         +'<div class="media-bar">'
         +'<a class="btn sm" style="text-decoration:none" href="'+API+'/media/proxy?taskId='+encodeURIComponent(d.taskId||'')+'&download=1'+mediaTick+'">保存视频</a>'
         +(canRefresh?'<button type="button" class="btn sm ghost" data-refresh-media="'+tidEsc+'">刷新直链</button>':'')
+        + actBtns
         +'<span class="media-tip" data-codec-tip>'
-        +(canRefresh?'竖屏/横屏都能播；直链来自平台 CDN，几小时后过期，过期点「刷新直链」（不重新转写）'
-                    :'直链来自平台 CDN，链接可能过期；过期请重新提取')
+        +((d.taskType==='file_transcript'||platform==='本地文件')
+            ? '本地文件直接从磁盘播放；原文件被移动或删除后，需要重新导入一次'
+            : (canRefresh?'竖屏/横屏都能播；直链来自平台 CDN，几小时后过期，过期点「刷新直链」（不重新转写）'
+                         :'直链来自平台 CDN，链接可能过期；过期请重新提取'))
         +'</span>'
         +'</div>'
-      :'')
-    +(d.videoUrlList&&d.videoUrlList.length
+      : '<div class="media-bar">'+actBtns+'</div>')
+    +(hasVideo
       ? '<div class="section-label" id="framesLabel-'+tidEsc+'">视频截图</div>'
         +'<div class="frame-strip" id="frames-'+tidEsc+'" data-task="'+tidEsc+'" data-cover="'+escapeHtml(coverUrl)+'"></div>'
       : (coverUrl? '<div class="section-label">封面</div><img class="cover" src="'+coverEsc+'" onerror="this.style.display=\'none\'">':''))
@@ -917,14 +949,16 @@ function renderVideoResult(d, into){
   into.innerHTML=h;
   initTranscriptVariant(into);
   if(d.videoUrlList&&d.videoUrlList.length) captureFrames(into, d.taskId||'');
+  // 视频号页：有了结果就切成左右两栏（原来靠 refreshQqResultTabs 顺带触发，标签条去掉后要自己叫）
+  syncQqEmptyState();
 }
 
 // 视频号结果堆叠的快速切换标签（点击滚动到对应结果）
 function refreshQqResultTabs(){
   const bar = document.getElementById('qqResultTabs');
+  syncQqEmptyState();
   if(!bar) return;
   const cards = [...document.querySelectorAll('#vresult > .card')];
-  syncQqEmptyState();
   if(!cards.length){ bar.style.display='none'; bar.innerHTML=''; return; }
   bar.style.display = 'flex';
   bar.innerHTML = cards.map((card, i)=>{
@@ -1297,8 +1331,10 @@ function layoutQqPage(){
   const adv=document.getElementById('qqAdvancedBlock');
   const tabs=document.getElementById('qqResultTabs');
   const vres=document.getElementById('vresult');
-  if(!flow||!status||!lv||!adv||!tabs||!vres) return;
+  if(!flow||!status||!lv||!adv||!vres) return;
   const hero=view.querySelector('.hero');
+  const linkCard=document.getElementById('qqLinkCard');
+  const anchor=linkCard||hero;
   const oldCard=flow.parentElement;
   const layout=document.createElement('div'); layout.className='qq-layout';
   const side=document.createElement('div'); side.className='qq-side';
@@ -1306,9 +1342,10 @@ function layoutQqPage(){
   const wrapCard=el=>{ const c=document.createElement('div'); c.className='card'; c.append(el); return c; };
   // 每块独立成卡：原来"流程 + 下载器状态"挤在同一张卡里靠细线分隔，观感最乱
   side.append(wrapCard(flow), wrapCard(status), wrapCard(lv), wrapCard(adv));
-  main.append(tabs, vres);
+  main.append(...(tabs?[tabs]:[]), vres);
   layout.append(side, main);
-  if(hero && hero.parentElement) hero.parentElement.insertBefore(layout, hero.nextSibling);
+  // 链接提取卡留在最上面占满一行，两列布局排在它下面
+  if(anchor && anchor.parentElement) anchor.parentElement.insertBefore(layout, anchor.nextSibling);
   else view.append(layout);
   if(oldCard && oldCard!==view && !oldCard.contains(flow)) oldCard.remove();
   syncQqEmptyState();
@@ -1387,6 +1424,17 @@ function bindViewEvents(){
   if(qs){
     qs.addEventListener('click', qqStartExtract);
     qqWatchLoop();
+  }
+  // 视频号：链接提取（一个输入框 + 一个按钮，2026-11-05 成为默认主路径）
+  const qlink = document.getElementById('qqLinkBtn');
+  if(qlink){
+    qlink.addEventListener('click', qqLinkExtract);
+    const qin = document.getElementById('qqUrlInput');
+    if(qin) qin.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); qqLinkExtract(); } });
+    // 进页面先查一次登录态：没绑定就直接在页面上挂通知（2026-11-05 用户要求）
+    refreshQqLoginTip();
+    const gl = document.getElementById('qqGoLogin');
+    if(gl) gl.addEventListener('click', ()=>{ location.hash = '#/accounts'; showView('accounts'); });
   }
   const ao = document.getElementById('archOpen');
   if(ao) ao.addEventListener('click', archOpenFolder);
@@ -1667,6 +1715,7 @@ async function videoExtract(){
   setTaskLoading({kind:'video'}, '正在提取...');
   const vresult=$('#vresult');
   if(vresult && vresult.dataset.stack === undefined) vresult.innerHTML='';
+  syncQqEmptyState();   // 清空后视频号页收回单栏（避免右侧留一块空白）
   try{
     const j=await api('/transcript/doTask',{method:'POST',body:JSON.stringify({appType:'douchong',workUrl:url,type:'text',targetLanguage:'auto',whisperModel:$('#vwhisper').value,ocrFrames:!!(document.getElementById('vframes')||{}).checked})});
     if(j.code!==200||!j.data){ throw new Error(j.msg||'创建失败'); }
@@ -1949,15 +1998,18 @@ window.loadAccounts = async function(){
   catch(e){ box.innerHTML='<div class="msg error show">读取账号状态失败：'+escapeHtml(String(e))+'</div>'; return; }
   const d=(j && j.data)||{};
   let h='';
-  Object.keys(d).forEach(key=>{
+  const keys=Object.keys(d);
+  // 视频号扫码授权（贴链接直接下载换凭证用）固定排第一，其它平台保持后端顺序
+  keys.sort((a,b)=>(a==='yuanbao'?-1:(b==='yuanbao'?1:0)));
+  keys.forEach(key=>{
     const p=d[key]||{}; const rows=p.accounts||[];
     const others = rows.filter(a=>a.account!=='（默认）').length;
     h+='<div style="margin-bottom:1.15rem">'
       +'<div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">'
-      +'<b>'+escapeHtml(p.label||key)+'</b>'
+      +'<b>'+escapeHtml(key==='yuanbao'?'视频号':(p.label||key))+'</b>'
       +'<span class="muted" style="font-size:.78rem">'
       +(p.logged_in_count?('已登录 '+p.logged_in_count+' 个'):'未登录')
-      +(p.note?(' · '+escapeHtml(p.note)):'')+'</span>'
+      +(p.note?(' · '+escapeHtml(key==='yuanbao'?'元宝登录：微信扫码一次，有效期约 2 个月':p.note)):'')+'</span>'
       +'<button class="btn sm ghost" data-login="'+key+'|">登录默认账号</button>'
       +'<button class="btn sm ghost" data-login="'+key+'|account_'+(others+1)+'">+ 新账号 account_'+(others+1)+'</button>'
       +'</div>';
@@ -1968,14 +2020,16 @@ window.loadAccounts = async function(){
         +(a.logging_in? '<span style="color:#b45309">登录中…（请到浏览器窗口完成）</span>'
           : a.logged_in? '<span style="color:#047857">● 已登录</span><span class="muted">'+escapeHtml(a.logged_at||'')+'（'+escapeHtml(a.ago||((a.days_ago||0)+' 天前'))+'）</span>'
           : '<span class="muted">○ 未登录</span>')
+        // 凭证真实到期日：从 cookie 文件读，不写死文案（用户 2026-11-05 指出「长期有效」不实）
+        +((a.logged_in && a.expires_at)? '<span style="color:'+(a.expiring?'#b91c1c':'var(--muted)')+'" title="登录凭证到 '+escapeHtml(a.expires_at)+' 过期，到期后重扫一次即可">· 有效至 '+escapeHtml(a.expires_at.slice(0,10))+'（剩 '+(a.days_left!=null?a.days_left:'?')+' 天）</span>':'')
         +(a.cooldown? '<span style="color:#b45309">· 冷却中 '+Math.ceil(a.cooldown/60)+' 分钟</span>':'')
         // 出口：配代理池后最该确认的一件事——这个号到底走哪条 IP
         +'<span style="color:'+(a.egress?'#0369a1':'var(--muted)')+'" title="'+(a.egress?'该号稳定绑定这条出口':'没有可用出口，走本机直连')+'">· 出口 '+escapeHtml(a.egress_label||'直连')+'</span>'
         // 健康度：池内号才用得上（默认账号不参与轮换，没有这些计数）
         +((a.ok||a.fail)? '<span class="muted" title="累计成功/失败（跨天不重置）">· 成功 '+a.ok+' / 失败 '+a.fail+((a.success_rate!=null)?'（'+Math.round(a.success_rate*100)+'%）':'')+'</span>':'')
-        +((a.used_today!=null&&a.daily_max)? '<span class="muted">· 今日 '+a.used_today+'/'+a.daily_max+(a.capped?'（已达上限）':'')+'</span>':'')
+        // 2026-11-05 用户要求：不在前端显示任何配额/上限（今日 0/30 这类），只留健康度
         +((a.last_fail)? '<span class="muted" title="'+escapeHtml(String(a.last_fail))+'" style="cursor:help">· 最近失败 ⓘ</span>':'')
-        +'<span class="muted" style="margin-left:auto">'+escapeHtml(a.profile||'')+'</span>'
+        +'<span class="muted" style="margin-left:auto">'+escapeHtml((a.profile||'').replace('yuanbao','视频号'))+'</span>'
         +'<button class="btn sm ghost" data-login="'+key+'|'+acct+'">'+(a.logged_in?'重新登录':'登录')+'</button>'
         +(a.logged_in? '<button class="btn sm ghost" data-check="'+key+'|'+acct+'">验证</button>':'')
         +'<button class="btn sm ghost" data-logout="'+key+'|'+acct+'" title="删除这个号的登录 cookie 与专属浏览器 profile（历史记录不受影响，重新登录可恢复）">退出</button>'
@@ -2618,6 +2672,61 @@ async function extDlDownload(){
     }
   }catch(e){ notify('请求失败：' + e.message, 'error'); }
   finally{ if(btn){ btn.disabled = false; btn.textContent = '提交直链下载'; } }
+}
+
+// ---------- 视频号：登录态提示（2026-11-05） ----------
+// 没绑定元宝凭证时，进页面就挂一条通知，避免用户贴完链接才发现拿不到视频。
+async function refreshQqLoginTip(){
+  const tip=document.getElementById('qqLoginTip');
+  if(!tip) return true;                       // 不在视频号页
+  try{
+    const j=await api('/login/status');
+    const y=((j&&j.data&&j.data.yuanbao)||{}); const rows=y.accounts||[];
+    const any=rows.some(a=>a.logged_in);
+    window._qqLoginOk=any;
+    tip.style.display = any ? 'none' : '';
+    tip.className = any ? 'msg error' : 'msg error show';
+    return any;
+  }catch(e){ tip.style.display='none'; return true; }   // 读不到状态就别打扰用户
+}
+
+// ---------- 视频号：贴链接直接提取（2026-11-05 主路径） ----------
+async function qqLinkExtract(){
+  const btn=document.getElementById('qqLinkBtn');
+  const inp=document.getElementById('qqUrlInput');
+  const m=document.getElementById('vmsg');
+  let link=(inp.value||'').trim();
+  if(!link){ m.className='msg error show'; m.textContent='请先粘贴视频号分享链接'; return; }
+  if(!/^https?:\/\//i.test(link)){
+    // 允许整段分享文案：从里面抠出第一个链接
+    const mm=link.match(/https?:\/\/[^\s"'<>，。；、）)\]]+/);
+    if(!mm){ m.className='msg error show'; m.textContent='没识别到链接，请粘贴完整地址（或带链接的整段分享文案）'; return; }
+    link=mm[0].replace(/[),.;，。]+$/,''); inp.value=link;
+  }
+  if(btn){ btn.disabled=true; btn.textContent='提取中…'; }
+  m.className='msg';
+  // 没绑定凭证时先停一下：第一次点只提醒去登录；用户确实只要文字，再点一次就放行
+  const logged = await refreshQqLoginTip();
+  if(!logged && !window._qqLoginWarned){
+    window._qqLoginWarned = true;
+    if(btn){ btn.disabled=false; btn.textContent='提取'; }
+    const tip=document.getElementById('qqLoginTip');
+    if(tip){ try{ tip.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){} }
+    m.className='msg error show';
+    m.textContent='还没绑定视频号凭证：现在只能拿到标题 / 作者 / 正文，视频下不到。点上面「去登录」微信扫码一次（约 60 天有效）；确定不要视频，就再点一次「提取」。';
+    return;
+  }
+  setTaskLoading({kind:'video'}, '正在提取...');
+  const vresult=$('#vresult');
+  if(vresult && vresult.dataset.stack === undefined) vresult.innerHTML='';
+  try{
+    const j=await api('/transcript/doTask',{method:'POST',body:JSON.stringify({appType:'douchong',workUrl:link,type:'text',targetLanguage:'auto',ocrFrames:true})});
+    if(j.code!==200||!j.data){ throw new Error(j.msg||'创建失败'); }
+    const entry={taskId:j.data.taskId, view:'video', key:currentKey, kind:'video', done:false, status:'RUNNING', message:'排队中'};
+    registerActive(entry);
+    pollTaskEntry(entry);
+  }catch(e){ clearTaskLoading({kind:'video'}); m.className='msg error show'; m.textContent=e.message; }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='提取'; } }
 }
 
 // ---------- 视频号：开始提取 → 盯监听 → 结果渲染在本页 ----------

@@ -105,6 +105,16 @@ PLATFORMS: dict[str, dict] = {
         "page_markers": None,
         "note": "B站公开视频不需要登录；大会员/登录可见内容才需要。",
     },
+    "yuanbao": {
+        # 「视频号贴链接直接下载」靠元宝的解析接口签发 token/eid，必须登录元宝
+        # （微信扫码即可）。导出的 cookies/yuanbao.txt 只给 app/video_channel.py 用。
+        "open_url": "https://yuanbao.tencent.com/",
+        "domains": ("yuanbao.tencent.com", "tencent.com"),
+        "tokens": ("hy_user", "hy_token"),
+        "min_len": 6,
+        "page_markers": None,
+        "note": "视频号链接直接下载用的登录态；用微信扫码登录一次即可，与其它平台无关。",
+    },
 }
 
 

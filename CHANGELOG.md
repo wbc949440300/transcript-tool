@@ -6,6 +6,85 @@
 
 ---
 
+## v1.0.7（2026-11-04）
+
+> 视频号「贴一条链接」从只能拿元数据，变成**能直接下载视频并转写**：新增元宝登录态
+> 换凭证拿 h264/h265 直链，下载时按响应头解密，复用「上传文件」同一条转写流水线。
+> **新增一项登录态**：想用这个能力需先 `python login_cookie.py yuanbao` 扫码一次；
+> 不配则行为与 v1.0.6 完全一致（只出元数据卡片）。
+
+### 新增：视频号贴链接直接下载并转写
+- `app/video_channel.py` 新增 `yuanbao_cookie()` / `resolve_video()` / `download_media()`：
+  - 元宝 `https://yuanbao.tencent.com/api/weixin/get_parse_result`（body `{"type":"video_channel_url","url":<链接>,"scene":1}`）→ `data.playable_url`（query 里带 token / eid）；
+  - 再 POST `finder-preview` 的 `get_feed_info`（body `{"baseReq":{"generalToken":<token>},"exportId":<eid>}`）→ `data.feedInfo`；
+  - 直链优先级 `h264VideoInfo` → `h265VideoInfo` → 通用 `videoUrl`，并精简 query 只留 `encfilekey`+`token`；
+  - `download_media` 读响应头 `X-enclen`（实测 131072），用直链 query 里的 `decodeKey` 生成 128KB 密钥流，只 XOR 前 `X-enclen` 字节后落盘；拿不到 decodeKey 时按明文保存并告警。
+- 密钥流用纯 Python 实现的 ISAAC64（`_Isaac64`，移植 Go `rand.RandCtx64`），**不再需要 wasm / Node**，单进程即可完成解密。
+- `app/api.py`：视频号解析入口检测到 `cookies/yuanbao.txt` 时，先试「直链 → 下载 → `start_file_task(platform="视频号")`」；任一步失败静默回落到原有元数据卡片，不影响旧行为。
+- `app/file_transcribe.py`：`start_file_task` / `_run_file_task` 新增 `platform` 形参（默认 `"本地文件"`），让「贴链接下载」的任务平台显示为「视频号」而不是「本地文件」。
+
+### 新增登录态：元宝（yuanbao）
+- `login_cookie.py` 增加 `yuanbao` 项：打开 `https://yuanbao.tencent.com/`，微信扫码一次，导出 `cookies/yuanbao.txt`（校验 token `hy_user` / `hy_token`）。与其它平台登录态互不影响。
+
+### 界面（static/index.html）
+- 视频号页「链接模式」提示改为：已配置元宝登录态则**直接下载视频并转写**；未配置时只取正文文案 / 作者 / 封面 / 互动数据。
+- 步骤说明补一条「贴链接直接下载（需元宝登录态）→ 自动转写」，并给出 `python login_cookie.py yuanbao` 的操作提示。
+- 首页说明去掉「本项目为技术演示」字样。
+
+### 配置与打包
+- `.env.example`：`TRANSCRIPT_EXT_DL_AUTOSTART` 改为默认注释（不再自动拉起外部下载器）。
+- `scripts/build_release.py`：打包结尾打印已保留的历史版本数量（`dist` 只增不删，任何涉及历史版本的删除必须先单独问用户）。
+
+### 验证
+- `F:\python\python.exe -m pytest tests/ -q -p no:warnings`：330 项全绿。
+- 未在本次发布中实跑端到端下载（需要有效元宝登录态）；回退路径保持 v1.0.6 行为。
+
+---
+
+## v1.0.6（2026-11-04）
+
+> 承接三条反馈：视频号页「排版不太协调」、进度圈显示成椭圆、视频号页把历史结果堆在页面上；
+> 顺带修掉「网盘下载下来的本地视频，视频截图全失败」。**无配置变更**，覆盖升级即可。
+
+### 界面：视频号提取页重排
+- 左栏拆成 4 张独立卡（提取流程 / 下载器与监听目录 / 最近导入 / 高级选项），原先「提取流程」
+  和「最近下载任务」挤在同一张卡里用细线分隔；列表行改成带图标的两行式（标题 + 状态 / 大小 / 时间），
+  下载中显示百分比进度条，失败态由刺眼红字改成淡黄提示条。
+- 结果卡把「视频预览 + 视频截图」提到标题下方，作品简介 / 口播文案 / 作者文案 / 画面文字往后排；
+  「刷新直链」从按钮行挪到播放器下方（仅抖音 / 快手 / B 站出现）；提示条按任务类型分开说 ——
+  本地文件讲「直接从磁盘播放，原文件被移动或删除需重新导入」，其余平台讲「CDN 直链几小时后过期」。
+- 视频号页不再堆叠历史结果：新提取 / 新打开的结果直接覆盖旧结果，去掉了顶部「刚提取 / 历史」标签条，
+  与其他平台一致；顺带修掉「清空结果后页面停在单栏空态」的连带问题（空态同步不再依赖标签条逻辑触发）。
+- 进度圈显示成椭圆的根因是它被 flex 压缩（实测 230px 窄容器下由 20×20 挤成 13.19×20）：
+  `.spinner{flex:0 0 auto}` + 文案容器 `flex:1 1 auto;min-width:0` 允许换行，四处加载行一并修好。
+
+### 修复：横屏视频被压成 4:3
+- `<video poster>` 配 `width:auto` 时，浏览器按**封面图尺寸**排版而不是视频真实分辨率
+  （实测 1920×1080 渲染成 440×330）。改为 `aspect-ratio:16/9 + object-fit:contain`，
+  并在 `loadedmetadata` 里按 `videoWidth/videoHeight` 覆盖成真实比例；竖屏走 `.media-stage.portrait`。
+- 实测：抖音 712×401（比例 1.778）、视频号竖屏 269×480。
+
+### 修复：视频号本地文件「视频截图」全失败
+三层原因，逐条实测确认：
+1. `file://video.mp4` 只剥掉前缀 → 得到相对路径 `video.mp4`，ffmpeg 在服务进程的工作目录下找不到
+   （生产日志实证 4 次 `Error opening input: No such file or directory`）。改为解析成
+   `tasks/<taskId>/video.mp4`，文件不存在就换下一条候选，不再把相对路径喂给 ffmpeg。
+2. 主抽帧路径带 `-skip_frame nokey` + `fps=1/2`，而视频号短片整段只有 **1 个关键帧**
+   （`ffprobe -skip_frame nokey` 计数 = 1）→ 必定抽 0 张；抖音长视频关键帧密，所以同一套参数
+   在抖音上看不出问题。现在「本地源 + 已知时长」直接走逐点并发 seek。
+3. `file_transcript` 任务的 `duration` 落库是 NULL，让逐点 seek 兜底永远不触发 → 新增
+   `_probe_duration()` 用 ffprobe 现场补时长。
+- 另：这些片子是 tv-range 的 yuv420p，mjpeg 编码器会报 `Non full-range YUV is non-standard`，
+  输出侧加 `-strict unofficial` 兜住。
+- 实测：4 个视频号本地文件（7.1 / 13.4 / 7.4 / 8.0 秒，720×1280 ~ 1080×1928）由 **0 张 → 5/5 张**，
+  耗时 0.40 / 0.40 / 0.69 / 0.69 秒。
+
+### 测试
+- 新增 `tests/test_local_frames.py`（4 例）：`-strict` 必须排在 `-i` 之后且本地源不加 `-headers`、
+  本地文件走逐点 seek、ffprobe 补时长、`file://video.mp4` 解析成 `tasks/<taskId>/video.mp4`。
+- `pytest tests/ -q -p no:warnings` → 全绿。
+
+---
 ## v1.0.5（2026-11-04）
 
 > 用户问：「视频号的分享链接能不能像抖音一样直接粘进来提取？」

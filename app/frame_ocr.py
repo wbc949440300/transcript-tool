@@ -223,8 +223,12 @@ def _frame_cmd(source: str, referer: str, interval: float, max_frames: int,
     vf = f"fps=1/{interval:.2f}"
     if scale_w > 0:
         vf += f",scale={int(scale_w)}:-2"
+    # ★ 2026-11-04：输出侧加 `-strict unofficial`（=-2）。
+    #   MJPEG 素材（视频号/微信下来的片子常见）是 full-range YUV，ffmpeg 的
+    #   **mjpeg 编码器**默认会拒绝："Non full-range YUV is non-standard"，
+    #   结果一张都不出（浏览器却能正常播）。所以放宽的是写 jpg 这一侧。
     cmd += ["-i", source, "-vf", vf, "-frames:v",
-            str(max_frames), "-q:v", "4", out_pattern]
+            str(max_frames), "-q:v", "4", "-strict", "unofficial", out_pattern]
     return cmd
 
 
@@ -393,6 +397,20 @@ def extract_frame_text(source: str, duration: float | None = None,
             pass
 
 
+def _probe_duration(source: str, referer: str = "", timeout: float = 20.0) -> float:
+    """ffprobe 读总时长，失败返回 0（调用方据此按固定间隔抽）。"""
+    cmd = ["ffprobe", "-v", "error"]
+    if referer and str(source).lower().startswith(("http://", "https://")):
+        cmd += ["-headers", f"Referer: {referer}\r\nUser-Agent: Mozilla/5.0\r\n"]
+    cmd += ["-show_entries", "format=duration", "-of", "csv=p=0", source]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **hidden())
+        line = (r.stdout or "").strip().splitlines()
+        return float(line[0]) if line else 0.0
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def grab_thumbnails(source: str, duration: float | None = None, referer: str = "",
                     n: int = 5, out_dir: Path | None = None,
                     width: int = 960) -> list[Path]:
@@ -419,9 +437,18 @@ def grab_thumbnails(source: str, duration: float | None = None, referer: str = "
 
     n = max(1, min(int(n or 5), 12))
     dur = float(duration) if isinstance(duration, (int, float)) and duration > 0 else 0.0
+    is_http = src.lower().startswith(("http://", "https://"))
+    if dur <= 0:
+        # 本地文件任务的历史记录里没存时长 → 用 ffprobe 补，否则只能按固定 2 秒
+        # 间隔瞎抽，长片会全挤在前几秒。
+        dur = _probe_duration(src, referer)
     # 均匀取样：跳过开头和结尾各一点点，避免黑场/片尾
     interval = max(dur / (n + 1), 0.3) if dur else 2.0
     w = max(0, int(width))
+    if not is_http and dur > 0:
+        # 本地文件：5 路并发逐点 seek 最快（毫秒级），也不受「关键帧标记不可靠」影响
+        # —— MJPEG 素材加 -skip_frame nokey 实测一张都抽不出来。
+        return _seek_thumbnails(src, referer, dur, n, out, w)
     cmd = _frame_cmd(src, referer, interval, n, str(out / "thumb_%03d.jpg"),
                      scale_w=w, keyframes_only=True)
     try:
@@ -467,7 +494,7 @@ def _seek_thumbnails(source: str, referer: str, duration: float, n: int,
         cmd += ["-ss", "%.2f" % t, "-i", source]
         if width > 0:
             cmd += ["-vf", "scale=%d:-2" % width]
-        cmd += ["-frames:v", "1", "-q:v", "4", str(dst)]
+        cmd += ["-frames:v", "1", "-q:v", "4", "-strict", "unofficial", str(dst)]
         try:
             _sp.run(cmd, capture_output=True, text=True, timeout=60, **hidden())
         except Exception:  # noqa: BLE001
