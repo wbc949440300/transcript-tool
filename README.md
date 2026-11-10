@@ -2,6 +2,19 @@
 
 仿照抖虫(dousnap)交互与功能范围的**独立可运行**实现，含历史记录与多格式导出。
 
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license">
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg" alt="python">
+  <img src="https://img.shields.io/badge/FastAPI-0.100+-009688.svg" alt="fastapi">
+</p>
+
+## 界面预览
+
+<p align="center">
+  <img src="assets/home.png" width="49%" alt="首页：九大功能入口">
+  <img src="assets/menu.png" width="49%" alt="顶部下拉功能菜单">
+</p>
+
 ## 功能清单
 
 **🎥 视频文案提取**
