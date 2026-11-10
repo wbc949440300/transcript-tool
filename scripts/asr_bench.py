@@ -4,7 +4,7 @@
 要改默认值就得先拿到同音频、同模型下的实测数据 —— 这个脚本就是干这个的。
 
 用法：
-    python scripts/asr_bench.py                     # 自动挑监听目录里最大的视频，取 5 分钟片段
+    python scripts/asr_bench.py <媒体路径> --minutes 5
     python scripts/asr_bench.py <媒体路径> --minutes 5 --model medium
 
 输出：每种模式的耗时、实时倍率(x Realtime)、峰值显存、识别字数（看质量有没有掉）。
@@ -29,17 +29,9 @@ MEDIA_EXT = (".mp4", ".mov", ".mkv", ".webm", ".flv", ".m4v", ".avi",
 
 
 def pick_source(explicit: str = "") -> Path | None:
-    if explicit:
-        p = Path(explicit)
-        return p if p.is_file() else None
-    base = Path(__file__).resolve().parents[2] / "wx_downloads"
-    if not base.is_dir():
-        return None
-    cands = [f for f in list(base.glob("*")) + list((base / "processed").glob("*"))
-             if f.is_file() and f.suffix.lower() in MEDIA_EXT]
-    if not cands:
-        return None
-    return max(cands, key=lambda f: f.stat().st_size)
+    """只接受显式路径：监听目录已移除，不再猜素材位置。"""
+    p = Path(explicit) if explicit else None
+    return p if p and p.is_file() else None
 
 
 def cut_clip(src: Path, seconds: int, out: Path) -> Path:
@@ -103,7 +95,7 @@ def main() -> int:
 
     src = pick_source(args.media)
     if src is None:
-        print("找不到可用的媒体文件：请显式传路径，或先让监听目录里有视频")
+        print("找不到可用的媒体文件：请显式传媒体路径")
         return 1
     print(f"素材：{src.name}（{src.stat().st_size/1048576:.1f} MB）→ 取 {args.minutes} 分钟片段")
 

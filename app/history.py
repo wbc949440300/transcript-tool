@@ -136,7 +136,7 @@ def sweep_tmp_uploads(max_age_hours: Optional[float] = None) -> int:
 
     正常跑完的任务会在 finally 里删掉自己的副本（file_transcribe），但任务被中断 /
     进程被强杀时副本会留下——没有清理就会一直攒。只在启动时调用。
-    只删"够旧"的（默认 24 小时，`TRANSCRIPT_TMP_KEEP_HOURS` 可调）：监听目录刚冻结
+    只删"够旧"的（默认 24 小时，`TRANSCRIPT_TMP_KEEP_HOURS` 可调）：刚上传的
     进来、还没开跑的文件，以及正在排队的任务，都不会被误删。
     """
     tmp_dir = Path("tmp_uploads")

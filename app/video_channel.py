@@ -515,7 +515,7 @@ def download_media(url: str, dest: Path, timeout: float = 180.0) -> Path:
 # 连元数据都拿不到时给用户的提示（api 400 与批量 FAILURE 共用，别改口径）
 CHANNEL_UNRESOLVABLE = ("没取到该视频号作品的元数据（接口限流或链接已失效）。"
                         "请再点一次「提取」；仍失败的话，可以改用「上传文件」提取，"
-                        "或把已下载好的视频放进监听目录自动转写。")
+                        "或改用「上传文件」提取。")
 
 # resolve_video 的「决定性失败」标记：作品本身没有视频流（图集/已删除），重试也不会有
 _NO_VIDEO_MARKERS = ("没给视频直链",)
@@ -550,6 +550,29 @@ def _resolve_with_retry(raw: str, attempts: int = 3) -> tuple[dict, str]:
     return {}, last
 
 
+def _friendly_reason(detail: str) -> str:
+    """把底层异常翻译成用户能看懂的一句话（原始堆栈只进日志）。
+
+    2026-11-05：前端此前直接显示 `<urlopen error _ssl.c:989: The handshake
+    operation timed out>` 这种技术细节，用户看不懂；现在统一成中文原因。
+    """
+    low = (detail or "").lower()
+    if any(k in low for k in ("ssl", "handshake", "timed out", "timeout", "握手", "超时")):
+        return "腾讯接口连接超时"
+    if any(k in low for k in ("remote end closed", "connection reset",
+                              "connection aborted", "connection refused", "中断")):
+        return "连接被中断"
+    if any(k in low for k in ("401", "403", "登录态", "cookie")):
+        return "元宝登录态失效"
+    if "playable_url" in low or "元宝没返回" in low:
+        return "元宝没有返回视频地址"
+    if "没给视频直链" in low or "没有视频流" in low:
+        return "该作品没有视频流"
+    if "视频下载失败" in detail or "http error 400" in low or "bad request" in low:
+        return "视频下载失败（CDN 拒绝）"
+    return "网络异常"
+
+
 def _fail_no_video(raw: str, detail: str, meta: dict,
                    task: Optional[object] = None) -> str:
     """绑定了凭证、自动重试后仍拿不到视频 → 任务标 FAILURE（不再静默降级）。
@@ -562,16 +585,19 @@ def _fail_no_video(raw: str, detail: str, meta: dict,
     from .task_store import store
     from .utils import gen_task_id
 
-    reason = (detail or "未知原因").strip()[:140]
+    raw_reason = (detail or "未知原因").strip()[:140]
+    reason = _friendly_reason(raw_reason)
+    transient = reason in ("腾讯接口连接超时", "连接被中断", "网络异常")
+    tail = ("请再点一次「提取」——多数是网络抖动，再点一次就成；"
+            "连续失败就去「账号」页重扫元宝登录刷新凭证。"
+            if transient else
+            "请再点一次「提取」；仍失败的话，链接可能已失效或作品已被删除，"
+            "可以改用「上传文件」提取。")
     if meta:
-        msg = (f"文案已取到，但视频没拿到（自动重试后仍失败：{reason}）。"
-               "请再点一次「提取」——多数是网络抖动，再点一次就成；"
-               "连续失败就去「账号」页重扫元宝登录刷新凭证。")
+        msg = f"文案已取到，但视频没拿到（已自动重试，{reason}）。{tail}"
     else:
         # 元数据和直链都没拿到：不能说「文案已取到」，否则就是骗人
-        msg = (f"这条作品的信息和视频都没拿到（自动重试后仍失败：{reason}）。"
-               "请再点一次「提取」；仍失败的话，链接可能已失效或作品已被删除，"
-               "可以改用「上传文件」提取。")
+        msg = f"这条作品的信息和视频都没拿到（已自动重试，{reason}）。{tail}"
     title = (meta.get("title") or "").strip() or "视频号作品"
     # platform 进 fields：单条新建和批量占位复用（占位可能被 detect_platform 标成
     # 「微信」）都要归到「视频号」，失败列表里平台列不能串行
@@ -588,13 +614,27 @@ def _fail_no_video(raw: str, detail: str, meta: dict,
             taskId=task_id, taskType="videochannel", status=TaskStatus.PENDING,
             webpageUrl=raw, **fields))
     store.update_status(task_id, TaskStatus.FAILURE, **fields)
-    logger.info("视频号提取失败(已自动重试仍无视频): %s → %s", raw, reason[:80])
+    logger.info("视频号提取失败(已自动重试仍无视频): %s → %s", raw, raw_reason[:120])
     return task_id
 
 
+def _progress(task: Optional[object], msg: str) -> None:
+    """给页面轮询看的阶段进度（只改内存任务，不写历史）。"""
+    if task is None:
+        return
+    try:
+        from .models import TaskStatus
+        from .task_store import store
+
+        store.update_status(task.taskId, TaskStatus.PENDING, errorMessage=msg)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def process_channel_link(raw: str, whisper_model: str = "tiny",
-                         task: Optional[object] = None) -> Optional[str]:
-    """视频号分享链接统一处理（同步；API 用 to_thread 调，批量在 worker 线程直接调）。
+                         task: Optional[object] = None,
+                         ocr_frames: bool = False) -> Optional[str]:
+    """视频号分享链接统一处理（同步函数；API 在后台线程调，批量在 worker 线程直接调）。
 
     流程：配了元宝登录态优先「换直链 → 下载 → 转写」（file_transcribe 流水线），
     直链拿不到时**自动重试**；重试仍失败 → 任务标 FAILURE 并提示「再点一次提取」
@@ -608,6 +648,7 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
     from .task_store import store
     from .utils import gen_task_id
 
+    _progress(task, "正在获取作品信息...")
     uri = short_uri_from(raw)
     cookie = yuanbao_cookie()
     info: dict = {}
@@ -627,14 +668,18 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
             return {}
 
     if cookie:
-        # 2026-11-05 优化：匿名元数据与直链解析互不依赖，串行白等 1~2 秒 —— 并行发
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            fm = ex.submit(_fetch_meta)
-            rm = ex.submit(_resolve_with_retry, raw)
-            meta = fm.result()
-            info, vid_err = rm.result()
+        # 2026-11-05 改：绑了凭证就**不再发匿名元数据请求**——resolve_video 走的
+        # 凭证接口本身带回标题/作者/封面/正文，匿名那次是重复劳动（实测还常撞
+        # SSL 握手超时，白白多等几秒甚至触发回落）。resolve 失败才用匿名兜底。
+        _progress(task, "正在换取视频直链...")
+        info, vid_err = _resolve_with_retry(raw)
+        if info:
+            meta = {k: v for k, v in info.items()
+                    if k not in ("videoUrl", "generalToken", "codec", "shareUrl")}
+            if uri:
+                meta["short_uri"] = uri
+        else:
+            meta = _fetch_meta()
     else:
         meta = _fetch_meta()
 
@@ -643,6 +688,7 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
         tmp_dir = Path("tmp_uploads")
         tmp_dir.mkdir(exist_ok=True)
         tmp = tmp_dir / f"{task_id}.mp4"
+        _progress(task, "正在下载视频...")
         # CDN 偶发 400/断流（实测 10:14 那次），同一直链补试一次
         dl_err = ""
         for attempt in range(2):
@@ -661,7 +707,7 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
             if task is None:
                 task = TaskDetail(
                     taskId=task_id, taskType="file_transcript", status=TaskStatus.PENDING,
-                    errorMessage="视频号视频获取中...", platform="视频号", webpageUrl=raw,
+                    errorMessage="正在准备转写...", platform="视频号", webpageUrl=raw,
                     title=src_name, cover=cover)
                 store.create(task)
             else:
@@ -669,11 +715,11 @@ def process_channel_link(raw: str, whisper_model: str = "tiny",
                 store.update_status(task_id, TaskStatus.PENDING,
                                     taskType="file_transcript", platform="视频号",
                                     title=src_name, cover=cover,
-                                    errorMessage="视频号视频获取中...")
+                                    errorMessage="正在准备转写...")
             from .file_transcribe import start_file_task
 
             start_file_task(task, tmp, whisper_model, src_name,
-                            ocr_frames=True, platform="视频号")
+                            ocr_frames=bool(ocr_frames), platform="视频号")
             return task_id
         vid_err = f"视频下载失败: {dl_err}"
 
@@ -724,7 +770,7 @@ def _create_link_mode_task(raw: str, meta: dict, task: Optional[object] = None) 
         task_id = gen_task_id()
         store.create(TaskDetail(
             taskId=task_id, taskType="videochannel", status=TaskStatus.PENDING,
-            errorMessage="作品内容提取中...", title=title, content=desc,
+            errorMessage="正在提取作品内容...", title=title, content=desc,
             textContent=desc, cover=meta.get("cover") or None, platform="视频号",
             uploader=meta.get("author") or None, webpageUrl=raw,
             channelMeta=channel_meta))
@@ -734,7 +780,7 @@ def _create_link_mode_task(raw: str, meta: dict, task: Optional[object] = None) 
                             title=title, content=desc, textContent=desc,
                             cover=meta.get("cover") or None, platform="视频号",
                             uploader=meta.get("author") or None,
-                            channelMeta=channel_meta, errorMessage="作品内容提取中...")
+                            channelMeta=channel_meta, errorMessage="正在提取作品内容...")
     # update_status 到 SUCCESS 会自动写历史 + 归档文案（文案输出/ 目录）
     store.update_status(task_id, TaskStatus.SUCCESS, title=title, content=desc,
                         textContent=desc, cover=meta.get("cover") or None)

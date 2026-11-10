@@ -422,11 +422,18 @@ def _fmt_mmss(sec: float) -> str:
 def _progress_reporter(task: TaskDetail):
     """转写进度回调：长视频要几分钟，得让用户看到"还要多久"（2026-10-31 加）。"""
     def report(done: float, total: float, eta: float) -> None:
-        left = "不到 1 分钟" if eta < 60 else f"约 {int(eta // 60) + 1} 分钟"
+        # 2026-11-05：短视频不显示 ETA——前几段还没出时按瞬时速率算出来的"约 2 分钟"
+        # 往往比实际慢很多，反而让人以为卡住。短视频只报“已转写 / 总长”。
+        if total and total <= 120:
+            msg = f"正在转写：{_fmt_mmss(done)} / {_fmt_mmss(total)}"
+        elif done <= 0:
+            msg = f"正在转写：0:00 / {_fmt_mmss(total)}"
+        else:
+            left = "不到 1 分钟" if eta < 60 else f"约 {int(eta // 60) + 1} 分钟"
+            msg = (f"正在转写：{_fmt_mmss(done)} / {_fmt_mmss(total)}"
+                   f"（预计还需 {left}）")
         try:
-            store.update_status(task.taskId, TaskStatus.RUNNING,
-                                errorMessage=f"正在转写：{_fmt_mmss(done)} / {_fmt_mmss(total)}"
-                                             f"（预计还需 {left}）")
+            store.update_status(task.taskId, TaskStatus.RUNNING, errorMessage=msg)
         except Exception:  # noqa: BLE001
             pass
     return report
@@ -584,6 +591,11 @@ def _transcribe(video_path: Path, model_name: str = DEFAULT_WHISPER,
         total_sec = float(getattr(_info, "duration", 0) or 0)
         t_start = time.time()
         last_report = 0.0
+        if on_progress and total_sec > 0:
+            try:
+                on_progress(0.0, total_sec, 0.0)     # 立刻显示 0:00 / 总长，别让页面空等
+            except Exception:  # noqa: BLE001
+                pass
         for seg in segments:
             t = (seg.text or "").strip()
             if not t:
@@ -596,7 +608,7 @@ def _transcribe(video_path: Path, model_name: str = DEFAULT_WHISPER,
             })
             if on_progress and total_sec > 0:
                 now = time.time()
-                if now - last_report >= 5:          # 每 5 秒更新一次，别刷屏
+                if now - last_report >= 2:          # 每 2 秒更新一次，页面轮询也是 2 秒
                     last_report = now
                     done = float(getattr(seg, "end", 0) or 0)
                     rate = done / max(0.1, now - t_start)

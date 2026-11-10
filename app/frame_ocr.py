@@ -30,6 +30,10 @@ _MIN_LINE_SCORE = 0.45      # OCR 置信度下限
 _PERSISTENT_RATIO = 0.6     # 出现帧占比 ≥ 该值视为"常驻"
 _CORNER_X = 0.25            # 水平靠边阈值（距左右边缘 25% 内）
 _CORNER_Y = 0.16            # 垂直靠边阈值（距上下边缘 16% 内）
+_AUTO_CROP_CY = 0.55        # auto 判字幕带：文字中心 y ≥ 画面高 55% 视为“在底部”
+_AUTO_CROP_RATIO = 0.9     # 且这些文字占探针文字 ≥90%（近乎全在底部才裁）
+_AUTO_CROP = "0.55:0.45"   # 裁从画面 55% 起的下半屏 45%
+
 _SMALL_H = 0.06             # 小字阈值（字高/画面高）
 _MIN_TEXT_LEN = 1
 # 作者展示文案 vs 画面杂字（2026-11-02 实测：作者主文案水平正中 cx≈0.50、
@@ -70,11 +74,20 @@ def _norm_key(text: str) -> str:
 
 
 def _ocr_lines(img: Path, W: int, H: int) -> list[tuple[str, float, float, float]]:
-    """单帧 OCR，返回 [(text, cx, cy, h)]，坐标均为 0~1 归一化。"""
+    """单帧 OCR，返回 [(text, cx, cy, h)]，坐标均为 0~1 归一化。
+
+    2026-11-05 提速：视频帧都是正向的，方向分类器（cls）每帧白跑一遍模型，
+    默认关掉（TRANSCRIPT_FRAME_OCR_USE_CLS=1 可开回）。
+    """
     from . import ocr as ocr_mod
 
     engine = ocr_mod._get_engine()
-    result = engine(str(img))
+    use_cls = os.getenv("TRANSCRIPT_FRAME_OCR_USE_CLS", "0").strip().lower() in (
+        "1", "true", "on", "yes")
+    try:
+        result = engine(str(img), use_cls=use_cls)
+    except TypeError:                      # 老版引擎不认关键字参数
+        result = engine(str(img))
     out: list[tuple[str, float, float, float]] = []
     for item in (result[0] if result and result[0] else []):
         try:
@@ -130,7 +143,7 @@ def _hamming(a: str, b: str) -> int:
     return sum(x != y for x, y in zip(a, b))
 
 
-def _ocr_frames(frames: list[Path], W: int, H: int) -> list[list]:
+def _ocr_frames(frames: list[Path], W: int, H: int, patience: int = 0) -> list[list]:
     """OCR 多帧：近似重复的画面只识别一次，其余复用同一份结果。
 
     实测 12.9 秒“免责声明”类视频 9 帧里只有约 3 个不同画面，重复 OCR
@@ -174,14 +187,40 @@ def _ocr_frames(frames: list[Path], W: int, H: int) -> list[list]:
         else:
             reuse_pick[idx] = src
 
-    workers = _ocr_workers()
-    if workers <= 1 or len(picked) <= 1:
-        uniq_lines = [one(frames[i]) for i in picked]
+    # 提前收工（2026-11-05）：字幕/告示牌类视频的文字集合很早就饱和，
+    # 后面几十帧全是重复——连续 patience 个识别帧没出现新文字就停止 OCR，
+    # 剩余帧按空行处理（聚合不受影响，重复帧本来就跳过）。
+    if patience > 0 and len(picked) > 1:
+        seen_keys: set[str] = set()
+        misses = 0
+        started = False
+        uniq_lines = []
+        for k, i in enumerate(picked):
+            lines = one(frames[i])
+            uniq_lines.append(lines)
+            new = False
+            for item in lines:
+                key = re.sub(r"[\W_]+", "", item[0])
+                if key and key not in seen_keys:
+                    seen_keys.add(key)
+                    new = True
+            if lines:
+                started = True
+            misses = 0 if new else (misses + 1 if started else 0)
+            if started and misses >= patience:
+                logger.info("画面文字: 连续 %d 帧无新文字，提前收工（识别到第 %d/%d 帧）",
+                            patience, k + 1, len(picked))
+                break
+        uniq_lines += [[] for _ in range(len(picked) - len(uniq_lines))]
     else:
-        from concurrent.futures import ThreadPoolExecutor
+        workers = _ocr_workers()
+        if workers <= 1 or len(picked) <= 1:
+            uniq_lines = [one(frames[i]) for i in picked]
+        else:
+            from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=min(workers, len(picked))) as ex:
-            uniq_lines = list(ex.map(lambda i: one(frames[i]), picked))
+            with ThreadPoolExecutor(max_workers=min(workers, len(picked))) as ex:
+                uniq_lines = list(ex.map(lambda i: one(frames[i]), picked))
 
     by_idx = dict(zip(picked, uniq_lines))
     # 每帧 → 所属组的代表帧
@@ -202,9 +241,26 @@ def _ocr_frames(frames: list[Path], W: int, H: int) -> list[list]:
     return results
 
 
+def _crop_vf(crop: str) -> str:
+    """把「字幕带裁剪」配置转成 ffmpeg -vf 片段（在 scale 后的画面比例上用 ih/iw 裁）。
+
+    crop 形如 "0.55:0.45" = 从画面 55% 高度起、向下取 45% 高度（字幕带）。
+    用 ih/iw 按比例裁，不依赖具体分辨率。返回空串=不裁（默认全画面）。
+    """
+    if not crop or not crop.strip():
+        return ""
+    try:
+        top_s, height_s = crop.strip().split(":")
+        top = float(top_s); height = float(height_s)
+    except Exception:
+        return ""
+    if not (0 <= top < 1) or not (0 < height <= 1 - top + 1e-6):
+        return ""
+    return ",crop=iw:ih*%.2f:0:ih*%.2f" % (height, top)
+
 def _frame_cmd(source: str, referer: str, interval: float, max_frames: int,
                out_pattern: str, scale_w: int = 0,
-               keyframes_only: bool = False) -> list[str]:
+               keyframes_only: bool = False, crop: str = "") -> list[str]:
     """构造抽帧命令。
 
     - 只有 http(s) 源才加 `-headers`：对**本地文件**加这个选项 ffmpeg 会直接报
@@ -223,6 +279,10 @@ def _frame_cmd(source: str, referer: str, interval: float, max_frames: int,
     vf = f"fps=1/{interval:.2f}"
     if scale_w > 0:
         vf += f",scale={int(scale_w)}:-2"
+    if crop and scale_w > 0:
+        cr = _crop_vf(crop)
+        if cr:
+            vf += cr
     # ★ 2026-11-04：输出侧加 `-strict unofficial`（=-2）。
     #   MJPEG 素材（视频号/微信下来的片子常见）是 full-range YUV，ffmpeg 的
     #   **mjpeg 编码器**默认会拒绝："Non full-range YUV is non-standard"，
@@ -237,13 +297,13 @@ _PROBE_MIN_LINES = 1       # 探针至少命中几条"非水印"文字才算有�
 
 
 def _scan(source: str, referer: str, interval: float, frames_n: int, W: int, H: int,
-          tmp: Path, tag: str):
+          tmp: Path, tag: str, patience: int = 0, crop: str = ""):
     """抽 frames_n 帧 → OCR → 按频率/位置/字号聚合。
 
     返回 (blocks, dropped, 实际帧数, 原始行)；原始行供探针判定用。
     """
     cmd = _frame_cmd(source, referer, interval, frames_n,
-                     str(tmp / f"{tag}_%03d.jpg"), scale_w=W)
+                     str(tmp / f"{tag}_%03d.jpg"), scale_w=W, crop=crop)
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, **hidden())
     frames = sorted(tmp.glob(f"{tag}_*.jpg"))
     if not frames:
@@ -251,10 +311,17 @@ def _scan(source: str, referer: str, interval: float, frames_n: int, W: int, H: 
         return [], 0, 0, []
 
     total = len(frames)
+    # 裁剪模式：OCR 吃的是裁剪带小图，坐标按带尺寸归一，cy 才判得准
+    ocr_h = H
+    if crop:
+        try:
+            ocr_h = max(1, int(round(H * float(crop.split(':')[1]))))
+        except Exception:
+            ocr_h = H
     agg: dict[str, dict] = {}
     order: list[str] = []
     raw: list[tuple[str, float, float, float]] = []
-    frame_lines = _ocr_frames(frames, W, H)
+    frame_lines = _ocr_frames(frames, W, ocr_h, patience=patience)
     for idx, lines in enumerate(frame_lines):
         t = round(idx * interval, 1)
         for text, cx, cy, h in lines:
@@ -353,6 +420,24 @@ def extract_frame_text(source: str, duration: float | None = None,
         probe_n = _PROBE_FRAMES
     probe_n = max(1, min(probe_n, max_frames))
 
+    try:
+        interval_floor = float(os.getenv("TRANSCRIPT_FRAME_OCR_INTERVAL", "2.0") or 2.0)
+    except Exception:
+        interval_floor = 2.0
+    interval_floor = max(1.0, interval_floor)
+    try:
+        patience = int(os.getenv("TRANSCRIPT_FRAME_OCR_PATIENCE", "4") or 4)
+    except Exception:
+        patience = 4
+    # 字幕带裁剪默认开（0.55:0.45=画面 55% 起的下半部 45%）：视频号/抖音中文短视频的
+    # 字幕几乎都在这条带里，OCR 快约 2.5 倍且不丢字。设空字符串=关闭（全画面）。
+    crop_cfg = (os.getenv("TRANSCRIPT_FRAME_OCR_CROP", "auto") or "").strip()
+    # auto = 探针后按文字实际分布决定：字幕带型（文字集中在画面下半部）才对全扫裁带提速
+    if crop_cfg.split(':', 1)[0] in ('auto', ''):
+        crop = ''
+    else:
+        crop = crop_cfg
+
     # 短视频：探针覆盖已接近全扫（差 1~2 帧），不值得再重扫一遍；
     # 直接复用探针结果（12.9 秒视频：探针 8 帧、全扫 9 帧，重扫纯属浪费）。
     if dur and dur > 0:
@@ -364,21 +449,29 @@ def extract_frame_text(source: str, duration: float | None = None,
     tmp = Path(tempfile.mkdtemp(prefix="frames_"))
     try:
         # 1) 探针：帧数少，但间隔按整条视频均分（覆盖率不缩水）
-        p_interval = 1.5 if not dur else max(1.5, dur / probe_n)
+        p_interval = interval_floor if not dur else max(interval_floor, dur / probe_n)
         p_blocks, p_dropped, p_total, raw = _scan(source, referer, p_interval, probe_n,
-                                                  W, H, tmp, "p")
+                                                  W, H, tmp, "p", patience=0, crop=crop)
         if not _probe_has_text(raw):
             logger.info("画面文字探针: %d 帧未见字幕/正文文字 → 跳过全扫", p_total)
             return {"blocks": [], "text": "", "main_text": "", "scene_text": "",
                     "dropped": 0, "probed": p_total, "skipped": True}
 
+        # auto 模式：按探针文字的实际垂直分布决定是否裁字幕带（只裁集中在底部的
+        # 字幕型视频 → 快 ~2.5 倍不丢字；文字分散全屏的保持全画面以免丢字）
+        if crop_cfg.split(':', 1)[0] in ('auto', '') and raw:
+            bottoms = [row for row in raw if row[2] >= _AUTO_CROP_CY]   # cy 阈值
+            if len(bottoms) / max(len(raw), 1) >= _AUTO_CROP_RATIO:
+                crop = _AUTO_CROP
+                logger.info("画面文字: 探针 %d 帧文字集中在底部带 → 全扫裁字幕带 %s", p_total, _AUTO_CROP)
+
         if probe_n >= max_frames:
             blocks, dropped, total = p_blocks, p_dropped, p_total
         else:
             # 2) 全扫：覆盖整条视频（间隔按总时长均分，不封顶）
-            interval = 1.5 if not dur else max(1.5, dur / max_frames)
+            interval = interval_floor if not dur else max(interval_floor, dur / max_frames)
             blocks, dropped, total, _raw = _scan(source, referer, interval, max_frames,
-                                                 W, H, tmp, "f")
+                                                 W, H, tmp, "f", patience=patience, crop=crop)
         merged = "\n".join(b["text"] for b in blocks)
         main_text = "\n".join(b["text"] for b in blocks if b.get("kind") == "main")
         scene_text = "\n".join(b["text"] for b in blocks if b.get("kind") != "main")

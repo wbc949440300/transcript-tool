@@ -317,54 +317,6 @@ def notify_desktop(items: list[dict]) -> bool:
         return False
 
 
-def notify_task_done(title: str, ok: bool, chars: int = 0, note: str = "") -> bool:
-    """任务完成气泡：监听目录（视频号）导入的视频转写完时弹一次。
-
-    与"告警气泡"的区别：
-    - 由 `TRANSCRIPT_WATCH_NOTIFY`（默认 **1**）控制 —— 这是"你点了下载、它跑完了"的
-      直接反馈，不该还要求你额外打开告警气泡开关
-    - 不与告警共用"10 分钟一次"的节流（你连下 5 条就该弹 5 次）
-    - 仍然尊重静默时段（夜里不打扰）
-    """
-    if os.name != "nt":
-        return False
-    if str(os.getenv("TRANSCRIPT_WATCH_NOTIFY", "1")).strip().lower() in ("0", "false", "off", "no"):
-        return False
-    # 完成通知**默认不受静默时段限制**：它是"你刚下的视频跑完了"的直接反馈，
-    # 不属于"告警打扰"（夜间下完视频就该知道成没成）。
-    # 想让它也遵守静默时段：TRANSCRIPT_WATCH_NOTIFY_QUIET=1
-    if str(os.getenv("TRANSCRIPT_WATCH_NOTIFY_QUIET", "0")).strip().lower() in ("1", "true", "on", "yes"):
-        try:
-            if _quiet_now():
-                return False
-        except Exception:  # noqa: BLE001
-            pass
-    head = "文案提取完成" if ok else "文案提取失败"
-    tip = (title or "未命名")[:60].replace("'", "''")
-    if ok:
-        body = f"{tip}｜{chars} 字" if chars else tip
-        icon = "Information"
-        kind = "Info"
-    else:
-        body = f"{tip}｜{note or '请查看日志'}"[:160].replace("'", "''")
-        icon = "Warning"
-        kind = "Warning"
-    ps = ("Add-Type -AssemblyName System.Windows.Forms;"
-          "$n=New-Object System.Windows.Forms.NotifyIcon;"
-          f"$n.Icon=[System.Drawing.SystemIcons]::{icon};$n.Visible=$true;"
-          f"$n.ShowBalloonTip(8000,'文案提取工具','{head}：{body}','{kind}');"
-          "Start-Sleep -Seconds 9;$n.Dispose()")
-    try:
-        subprocess.Popen(["powershell", "-NoProfile", "-Command", ps],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        logger.info("已弹完成通知: %s：%s", head, body[:60])
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("完成通知失败: %s", exc)
-        return False
-
-
 def check_and_log() -> list[dict]:
     """检查一次并写日志；**只有告警内容变化时才写**，避免重复刷屏。
 

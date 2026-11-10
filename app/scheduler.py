@@ -288,7 +288,7 @@ def _run_job(job: _Job) -> None:
     # 队列提示会一直挂在 errorMessage 上，这里先换成"开始提取"，避免界面显示
     # "RUNNING + 排队中第 1 位"这种自相矛盾的状态。
     try:
-        store.update_status(job.task.taskId, TaskStatus.RUNNING, errorMessage="开始提取...")
+        store.update_status(job.task.taskId, TaskStatus.RUNNING, errorMessage="正在开始提取...")
     except Exception:  # noqa: BLE001
         pass
 

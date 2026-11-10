@@ -116,26 +116,104 @@ def _transcribe_file(path: Path, model_name: str = "tiny", on_progress=None) -> 
     return text
 
 
+_VRAM_CACHE: dict = {}
+
+
+def _gpu_vram_mb() -> int:
+    """主 GPU 显存总量（MB）；读不到返回 0。进程内缓存（nvidia-smi 不便宜）。"""
+    if "mb" in _VRAM_CACHE:
+        return _VRAM_CACHE["mb"]
+    mb = 0
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5)
+        vals = [int(x.strip()) for x in (out.stdout or "").splitlines()
+                if x.strip().isdigit()]
+        mb = max(vals) if vals else 0
+    except Exception:
+        mb = 0
+    _VRAM_CACHE["mb"] = mb
+    return mb
+
+
+def _asr_tier() -> str:
+    """机器档位：cpu（无可用 CUDA）/ low（<4GB）/ mid（4~8GB）/ high（≥8GB）。
+
+    可用 TRANSCRIPT_ASR_TIER=cpu|low|mid|high 强制指定（排障/测试用）。
+    """
+    forced = (os.getenv("TRANSCRIPT_ASR_TIER", "") or "").strip().lower()
+    if forced in ("cpu", "low", "mid", "high"):
+        return forced
+    if os.getenv("TRANSCRIPT_FORCE_CPU", "0").strip().lower() in ("1", "true", "yes"):
+        return "cpu"
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() == 0:
+            return "cpu"
+    except Exception:
+        return "cpu"
+    vram = _gpu_vram_mb()
+    if vram <= 0:
+        return "low"          # 有 CUDA 但读不到显存：按弱机保守处理
+    if vram >= 8000:
+        return "high"
+    if vram >= 4000:
+        return "mid"
+    return "low"
+
+
+def _auto_bands(tier: str) -> tuple[float, float]:
+    """该档位的 (medium 上限秒, small 上限秒)。env 可覆盖对应档位阈值。"""
+    try:
+        env_m = float(os.getenv("TRANSCRIPT_AUTO_MEDIUM_MAX_SEC", "") or 0)
+    except ValueError:
+        env_m = 0.0
+    try:
+        env_s = float(os.getenv("TRANSCRIPT_AUTO_SMALL_MAX_SEC", "") or 0)
+    except ValueError:
+        env_s = 0.0
+    if tier == "high":
+        return (env_m or 600.0, env_s or 1800.0)
+    return (env_m or 240.0, env_s or 600.0)
+
+
 def _resolve_auto_model(model_name: str, media: Path) -> str:
-    """「auto」自适应（2026-11-05 用户定的策略）：短片（≤ TRANSCRIPT_AUTO_MEDIUM_MAX_SEC，
-    默认 240 秒 = 4 分钟，用户定的基准）用 medium 换人名/数字准确率；长视频自动降 tiny
-    控制耗时。时长探测失败按长视频处理（速度优先）。用户显式选了模型则原样返回。"""
+    """「auto」自适应（2026-11-05 升级：机器档位 + 视频时长 一起决定）。
+
+    - cpu / low（无独显或 <4GB 显存）→ 一律 tiny（跑 medium 得几分钟，不值）
+    - mid（4~8GB，如 RTX 3050 6GB）→ ≤4 分钟 medium，≤10 分钟 small，更长 tiny
+    - high（≥8GB）→ ≤10 分钟 medium，≤30 分钟 small，更长 tiny
+    时长探测失败按长视频处理（速度优先）。用户显式选了模型则原样返回。
+    """
     if model_name != "auto":
         return model_name
-    try:
-        limit = float(os.getenv("TRANSCRIPT_AUTO_MEDIUM_MAX_SEC", "240"))
-    except ValueError:
-        limit = 120.0
+    tier = _asr_tier()
     from .frame_ocr import _probe_duration
 
     dur = _probe_duration(str(media))
-    pick = "medium" if 0 < dur <= limit else "tiny"
-    logger.info("转写模型自适应: 时长 %.0f 秒（阈值 %.0f 秒）→ %s", dur, limit, pick)
+    med_max, small_max = _auto_bands(tier)
+    if dur <= 0:
+        pick = "tiny"                      # 探测不到时长：按长视频保守处理
+    elif tier in ("cpu", "low"):
+        pick = "tiny"
+    elif dur <= med_max:
+        pick = "medium"
+    elif dur <= small_max:
+        pick = "small"
+    else:
+        pick = "tiny"
+    logger.info("转写模型自适应: 档位=%s（显存 %dMB）时长=%.0f 秒"
+                "（medium≤%.0f / small≤%.0f）→ %s",
+                tier, _gpu_vram_mb(), dur, med_max, small_max, pick)
     return pick
 
 
 def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name: str,
-                   ocr_frames: bool = False, notify: bool = False,
+                   ocr_frames: bool = False,
                    platform: str = "本地文件") -> None:
     try:
         store.update_status(task.taskId, TaskStatus.RUNNING)
@@ -191,6 +269,9 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
         else:
             logger.info("文件无音轨，跳过语音转写: %s", src_name)
         if worker is not None:
+            # 画面 OCR 可能比 ASR 慢很多（长视频全扫 3 分钟以上），必须告诉页面在干什么
+            store.update_status(task.taskId, TaskStatus.RUNNING,
+                                errorMessage="正在识别画面文字（OCR）...")
             worker.join()          # 画面文字没算完不算完成（结果字段要齐）
 
         task.title = src_name
@@ -208,13 +289,9 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
             videoUrlList=getattr(task, "videoUrlList", None),
             frameText=getattr(task, "frameText", None),
         )
-        if notify:
-            _notify_done(True, src_name, len((task.textContent or "").strip()))
     except Exception as exc:  # noqa: BLE001
         logger.error("文件转写任务 %s 失败: %s", task.taskId, exc)
         store.update_status(task.taskId, TaskStatus.FAILURE, errorMessage=str(exc))
-        if notify:
-            _notify_done(False, src_name, 0, str(exc))
     finally:
         try:
             if file_path.exists():
@@ -223,24 +300,14 @@ def _run_file_task(task: TaskDetail, file_path: Path, model_name: str, src_name:
             pass
 
 
-def _notify_done(ok: bool, title: str, chars: int = 0, note: str = "") -> None:
-    """完成气泡（监听目录/视频号流程专用；失败不影响主流程）。"""
-    try:
-        from .alerts import notify_task_done
-
-        notify_task_done(title, ok, chars=chars, note=note)
-    except Exception:  # noqa: BLE001
-        pass
-
-
 def start_file_task(task: TaskDetail, tmp_file: Path, model_name: str, src_name: str,
-                    ocr_frames: bool = False, notify: bool = False,
+                    ocr_frames: bool = False,
                     platform: str = "本地文件") -> None:
     import threading
     th = threading.Thread(
         target=_run_file_task,
         args=(task, tmp_file, model_name, src_name),
-        kwargs={"ocr_frames": ocr_frames, "notify": notify, "platform": platform},
+        kwargs={"ocr_frames": ocr_frames, "platform": platform},
         daemon=True,
     )
     th.start()

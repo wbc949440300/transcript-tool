@@ -67,6 +67,15 @@ select{padding:.55rem .8rem;border:1px solid var(--border);border-radius:10px;ba
    让文字自己换行。 */
 .loading>span{flex:1 1 auto;min-width:0;line-height:1.5;overflow-wrap:anywhere;}
 .loading.show{display:flex;}
+/* 2026-11-06：任务进度条。有确定进度（转写 X/Y）就按比例走；其余阶段用流动条纹，
+   只表达“在动”，不显示倒计时数字。 */
+.loading{flex-wrap:wrap;}
+.task-progress{flex:1 1 100%;height:6px;border-radius:999px;overflow:hidden;background:#ede9fe;margin-top:.5rem;}
+.task-progress>i{display:block;height:100%;width:0;border-radius:inherit;
+  background:linear-gradient(90deg,#8b5cf6,#a78bfa);transition:width .6s ease;}
+.task-progress.indet>i{width:100%!important;background:repeating-linear-gradient(
+  90deg,#a78bfa 0 14px,#ddd6fe 14px 28px);background-size:28px 100%;animation:tpMove 1s linear infinite;}
+@keyframes tpMove{from{background-position:0 0}to{background-position:28px 0}}
 .spinner{width:20px;height:20px;flex:0 0 auto;box-sizing:border-box;border:3px solid #e9d5ff;border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* 结果 */
@@ -462,15 +471,18 @@ const views = {
         +  '<button class="btn" id="qqLinkBtn">提取</button>'
         +'</div>'
         +'<div class="row" style="margin-top:.45rem">'
-        +  '<select id="qqwhisper"><option value="auto" selected>自动 · 短片 medium / 长视频 tiny（推荐）</option><option value="tiny">tiny · 最快（长视频默认，准确率较低）</option><option value="small">small · 折中</option><option value="medium">medium · 更准（人名/数字，短片多花几秒）</option></select>'
-        +  '<span class="h-sub">「自动」按视频时长选：≤4 分钟用 medium（文字更准），长视频换 tiny（快）；只影响转写文字，不影响视频清晰度</span>'
+        +  '<select id="qqwhisper"><option value="auto">自动 · 按机器性能与视频时长选择</option><option value="tiny" selected>tiny · 最快（默认，推荐）</option><option value="small">small · 折中</option><option value="medium">medium · 更准（人名/数字，但可能慢很多）</option></select>'
+        +  '<span class="h-sub">默认 tiny 最省时间；「自动」会检测显卡档位（显存）与视频时长，在 tiny / small / medium 里挑一个。只影响转写文字，不影响视频清晰度</span>'
+        +'</div>'
+        +'<div style="margin-top:.45rem">'
+        +  '<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:#374151;cursor:pointer"><input type="checkbox" id="qqOcrFrames"> 同时识别画面文字（OCR 画面里的字幕/文字；默认关闭，需要时手动勾选，会明显变慢）</label>'
         +'</div>'
         +'<div style="font-size:.78rem;color:var(--muted);margin-top:.5rem;line-height:1.75">'
         +  '第一次用要先「<b>微信扫码绑定一次</b>」：到左侧「<b>账号</b>」页<b>最上面那一行（视频号 · 元宝登录）</b>点<b>登录</b>，页面会打开<b>元宝</b>，用微信扫一下。腾讯给的凭证<b>约 60 天</b>到期，到期后那一行会标红，重扫一次即可。<br>'
         +  '没绑定时这里仍会给出该作品的标题 / 作者 / 正文，只是拿不到视频本身；绑定后重新提取即可出视频。'
         +'</div>'
         +'<div class="msg" id="vmsg"></div>'
-        +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
+        +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span><div class="task-progress"><i></i></div></div>'
         +'</div>'
         // 文案输出快捷入口（监听目录功能已移除，2026-11-05）
         +'<div style="margin-top:.6rem"><button type="button" class="btn sm ghost" id="archOpen">打开文案输出文件夹</button></div>'
@@ -489,7 +501,7 @@ const views = {
       +'<label style="display:flex;align-items:center;gap:.4rem;margin-top:.45rem;font-size:.8rem;color:#374151;cursor:pointer">'
       +'<input type="checkbox" id="vframes"> 同时识别画面文字（OCR 画面里的字幕/文字；默认关闭，需要时手动勾选，会明显变慢）</label>'
       +'<div class="msg" id="vmsg"></div>'
-      +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span></div>'
+      +'<div class="loading" id="vload"><div class="spinner"></div><span id="vloadtxt">正在提取...</span><div class="task-progress"><i></i></div></div>'
         +'</div>'
         +'<div id="vresult"></div>';
   },
@@ -570,7 +582,7 @@ const views = {
       +'<button class="btn" id="fbtn" disabled>上传并转写</button></div>'
       +frames
       +'<div class="msg" id="fmsg"></div>'
-      +'<div class="loading" id="fload"><div class="spinner"></div><span id="floadtxt">正在转写...</span></div>'
+      +'<div class="loading" id="fload"><div class="spinner"></div><span id="floadtxt">正在转写...</span><div class="task-progress"><i></i></div></div>'
       +'</div>'
       +'<div id="fresult"></div>';
   },
@@ -900,6 +912,13 @@ function renderVideoResult(d, into){
   if(d.videoUrlList&&d.videoUrlList.length) captureFrames(into, d.taskId||'');
   // 视频号页：有了结果就切成左右两栏（原来靠 refreshQqResultTabs 顺带触发，标签条去掉后要自己叫）
   syncQqEmptyState();
+}
+
+// 2026-11-05 修复：视频号页改成单列后这个函数被误删，但还有 3 处调用 ——
+// 点「提取」直接抛 ReferenceError，页面永远停在「正在提取…」。现在补回一个安全的实现。
+function syncQqEmptyState(){
+  const layout = document.querySelector('.qq-layout');
+  if(layout) layout.classList.toggle('qq-empty', !document.querySelector('#vresult > .card'));
 }
 
 // 视频号结果堆叠的快速切换标签（点击滚动到对应结果）
@@ -1442,13 +1461,19 @@ async function api(path, opt={}){
   const retries = method==='GET' ? 2 : 0;
   let lastErr;
   for(let i=0;i<=retries;i++){
+    // 2026-11-05：服务重启时 fetch 可能永远不返回，页面会一直「正在提取…」。
+    // 统一 150 秒超时（视频号直链自动重试最坏约 80 秒），超时给出可操作提示。
+    const ctl=new AbortController();
+    const timer=setTimeout(()=>ctl.abort(), opt.timeoutMs||150000);
     try{
-      const r=await fetch(API+path, Object.assign({headers:{'Content-Type':'application/json'}}, opt));
+      const r=await fetch(API+path, Object.assign({headers:{'Content-Type':'application/json'}}, opt, {signal:ctl.signal}));
       return await r.json();
     }catch(e){
-      lastErr=e;
+      lastErr = (e && e.name==='AbortError')
+        ? new Error('请求超时（服务可能刚重启或网络中断），请刷新页面后重试')
+        : e;
       if(i<retries) await new Promise(res=>setTimeout(res, 500*(i+1)));
-    }
+    }finally{ clearTimeout(timer); }
   }
   throw lastErr;
 }
@@ -1534,16 +1559,46 @@ function taskUi(kind){
   const q=sel=>sel?document.querySelector(sel):null;
   return {cfg, load:q(cfg.load), txt:q(cfg.txt), btn:q(cfg.btn), msg:q(cfg.msg), result:q(cfg.result)};
 }
+// 2026-11-06：进度数字（0:03 / 0:41、预计还需 X 分钟）会让用户盯着倒计时更不耐烦，
+// 前端只显示阶段提示，具体进度仍保留在接口/日志里供排查。
+function friendlyProgress(text){
+  const s=String(text||'').trim();
+  if(/^正在转写/.test(s)) return '正在识别语音，请稍候…';
+  if(/^正在识别画面文字/.test(s)) return '正在识别画面文字，请稍候…';
+  if(/^正在下载视频/.test(s)) return '正在下载视频，请稍候…';
+  if(/^正在(换取视频直链|获取作品信息|获取视频号视频|获取视频)/.test(s)) return '正在获取视频，请稍候…';
+  if(/^正在(准备转写|开始提取)/.test(s)) return '正在准备转写，请稍候…';
+  if(/^排队中/.test(s)) return '正在排队，请稍候…';
+  return s;
+}
+function updateTaskBar(box, text){
+  if(!box) return;
+  const bar=box.querySelector('.task-progress');
+  if(!bar) return;
+  const fill=bar.querySelector('i');
+  const m=/^正在转写[：:]\s*(\d+):(\d+)\s*\/\s*(\d+):(\d+)/.exec(String(text||'').trim());
+  if(m){
+    const done=(+m[1])*60+(+m[2]), total=(+m[3])*60+(+m[4]);
+    const pct=total>0 ? Math.max(4, Math.min(99, Math.round(done/total*100))) : 0;
+    bar.classList.remove('indet');
+    if(fill) fill.style.width=pct+'%';
+  }else{
+    bar.classList.add('indet');
+    if(fill) fill.style.width='100%';
+  }
+}
 function setTaskLoading(entry,text){
   const ui=taskUi(entry.kind);
-  if(ui.load) ui.load.className='loading show';
-  if(ui.txt && text) ui.txt.textContent=text;
+  if(ui.load){ ui.load.className='loading show'; updateTaskBar(ui.load, text); }
+  if(ui.txt && text) ui.txt.textContent=friendlyProgress(text);
   if(ui.btn) ui.btn.disabled=true;
 }
 function clearTaskLoading(entry){
   const ui=taskUi(entry.kind);
   if(ui.load) ui.load.className='loading';
   if(ui.btn) ui.btn.disabled=false;
+  const fill=ui.load && ui.load.querySelector('.task-progress i');
+  if(fill) fill.style.width='0';
 }
 function clearTaskParam(){
   if(/[?&]task=/.test(location.hash)){
@@ -1614,7 +1669,10 @@ function pollTaskEntry(entry){
         if(isCurrent(entry)) showTaskFailure(entry, entry.message);
       } else {
         entry.message=d.errorMessage||'处理中'; saveActive();
-        if(isCurrent(entry)) setTaskLoading(entry, (TASK_UI[entry.kind].running||'处理中')+'：'+entry.message+'...');
+        if(isCurrent(entry)){
+          const m=entry.message||'处理中';
+          setTaskLoading(entry, (/^正在/.test(m) ? m : (TASK_UI[entry.kind].running||'处理中')+'：'+m)+'...');
+        }
         setTimeout(tick, 2000);
       }
     }).catch(e=>{
@@ -1634,7 +1692,7 @@ function pollTaskEntry(entry){
         const d=h.data;
         if(d && d.status==='SUCCESS'){ entry.done=true; entry.status='SUCCESS'; saveActive(); if(isCurrent(entry)) showTaskSuccess(entry, historyToResult(d)); }
         else if(d){ entry.done=true; entry.status='FAILURE'; saveActive(); if(isCurrent(entry)) showTaskFailure(entry, d.error_msg||'任务失败'); }
-        else if(isCurrent(entry)) showTaskFailure(entry, '连接中断，且历史里没有这个任务 —— 请到「历史记录」确认');
+        else if(isCurrent(entry)) showTaskFailure(entry, '连接中断：服务刚重启过，这个任务没有跑完（历史记录里也没有）。请再点一次「提取」重新提取。');
       }).catch(()=>{ if(isCurrent(entry)) showTaskFailure(entry, '连接中断，请到「历史记录」确认任务是否已完成'); });
     });
   };
@@ -1645,7 +1703,10 @@ function resumeActive(view,key){
   if(!entry) return;
   if(entry.kind==='batch'){ resumeBatchEntry(entry); return; }
   if(!entry.done){
-    setTaskLoading(entry, (TASK_UI[entry.kind].running||'处理中')+'：'+(entry.message||'处理中')+'...');
+    {
+      const m=entry.message||'处理中';
+      setTaskLoading(entry, (/^正在/.test(m) ? m : (TASK_UI[entry.kind].running||'处理中')+'：'+m)+'...');
+    }
     pollTaskEntry(entry);
     return;
   }
@@ -2405,12 +2466,12 @@ async function qqLinkExtract(){
   // 视频号直链失败会自动重试（后端最多 3 次），POST 要等重试结束才返回，
   // 先说明一句，避免按钮长时间「提取中…」被当成卡死
   m.className='msg show';
-  m.textContent='正在提取…（网络抖动会自动重试几次，最多约 1 分钟）';
+  m.textContent='正在获取视频，请稍候…';
   setTaskLoading({kind:'video'}, '正在提取...');
   const vresult=$('#vresult');
   if(vresult && vresult.dataset.stack === undefined) vresult.innerHTML='';
   try{
-    const j=await api('/transcript/doTask',{method:'POST',body:JSON.stringify({appType:'douchong',workUrl:link,type:'text',targetLanguage:'auto',whisperModel:(($('#qqwhisper')||{}).value||'auto'),ocrFrames:true})});
+    const j=await api('/transcript/doTask',{method:'POST',body:JSON.stringify({appType:'douchong',workUrl:link,type:'text',targetLanguage:'auto',whisperModel:(($('#qqwhisper')||{}).value||'tiny'),ocrFrames:!!((document.getElementById('qqOcrFrames')||{}).checked)})});
     if(j.code!==200||!j.data){ throw new Error(j.msg||'创建失败'); }
     const entry={taskId:j.data.taskId, view:'video', key:currentKey, kind:'video', done:false, status:'RUNNING', message:'排队中'};
     registerActive(entry);

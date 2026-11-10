@@ -215,7 +215,8 @@ def test_channel_link_bound_but_resolve_keeps_failing_marks_failure(monkeypatch,
     assert task.status == TaskStatus.FAILURE
     assert task.taskType == "videochannel"
     assert "视频没拿到" in task.errorMessage and "再点一次" in task.errorMessage
-    assert "SSL 握手超时" in task.errorMessage       # 真实原因要带上，便于排查
+    assert "SSL 握手超时" not in task.errorMessage     # 技术细节只进日志，不给前端看
+    assert "连接超时" in task.errorMessage
     # 失败归失败，已取到的文案不能丢（历史里仍可查到正文）
     assert task.textContent == "某条关于 AI 的短视频。#DeepSeek"
     assert task.uploader == "AI.Easy"
@@ -330,3 +331,112 @@ def test_fail_no_video_marks_platform(monkeypatch):
     assert kind == "update" and status == TaskStatus.FAILURE
     assert fields["platform"] == "视频号"
     assert "视频" in fields["errorMessage"]
+
+
+# ---------- 异步提交（2026-11-05）：视频号不再阻塞 POST ----------
+
+def _client():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    return TestClient(app, base_url="http://127.0.0.1:8000")
+
+
+def test_channel_submit_returns_immediately(monkeypatch, tmp_path):
+    import time as _t
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    started = {"ok": False}
+
+    def slow_process(raw, model="tiny", task=None, **kw):
+        started["ok"] = True
+        _t.sleep(0.8)                      # 模拟真实的“换直链+下载”耗时
+        task_store.store.update_status(task.taskId, TaskStatus.SUCCESS,
+                                       title="异步完成", textContent="文案")
+        return task.taskId
+
+    monkeypatch.setattr(video_channel, "process_channel_link", slow_process)
+    c = _client()
+    t0 = _t.time()
+    r = c.post("/prod-api/transcript/doTask", headers={"X-API-Token": "test-token"},
+               json={"workUrl": VC_LINK, "whisperModel": "tiny"})
+    dt = _t.time() - t0
+    assert r.status_code == 200 and r.json()["data"]["taskId"]
+    assert dt < 0.5, f"提交被阻塞了 {dt:.2f}s"
+    tid = r.json()["data"]["taskId"]
+
+    # 提交返回时任务应还在进行（PENDING/RUNNING），而不是已完成
+    d0 = (c.get("/prod-api/transcript/queryTask", params={"taskId": tid},
+                headers={"X-API-Token": "test-token"}).json()["data"])
+    assert d0["status"] in ("PENDING", "RUNNING")
+
+    for _ in range(30):
+        if started["ok"]:
+            break
+        _t.sleep(0.1)
+    _t.sleep(1.0)
+    d1 = (c.get("/prod-api/transcript/queryTask", params={"taskId": tid},
+                headers={"X-API-Token": "test-token"}).json()["data"])
+    assert d1["status"] == TaskStatus.SUCCESS.value or d1["status"] == "SUCCESS"
+
+
+def test_channel_submit_unresolvable_marks_failure(monkeypatch, tmp_path):
+    import time as _t
+    from app import task_store, video_channel
+    from app.models import TaskStatus
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.setattr(video_channel, "process_channel_link",
+                        lambda raw, model="tiny", task=None, **kw: None)
+    c = _client()
+    tid = c.post("/prod-api/transcript/doTask", headers={"X-API-Token": "test-token"},
+                 json={"workUrl": VC_LINK, "whisperModel": "tiny"}).json()["data"]["taskId"]
+    for _ in range(40):
+        d = (c.get("/prod-api/transcript/queryTask", params={"taskId": tid},
+                   headers={"X-API-Token": "test-token"}).json()["data"])
+        if d["status"] == "FAILURE":
+            break
+        _t.sleep(0.1)
+    assert d["status"] == "FAILURE"
+    assert "元数据" in (d.get("errorMessage") or "")
+
+
+def test_progress_reporter_short_video_no_eta():
+    """短视频（<=120 秒）不显示 ETA，避免“约 2 分钟”的误导。"""
+    from app.extractor import _progress_reporter
+    from app.models import TaskDetail, TaskStatus
+    from app.task_store import store
+
+    task = TaskDetail(taskId="prog_short", taskType="transcript", status=TaskStatus.RUNNING)
+    store.create(task)
+    rep = _progress_reporter(task)
+    rep(3.0, 41.0, 120.0)
+    msg = store.get("prog_short").errorMessage
+    assert "0:03 / 0:41" in msg and "预计还需" not in msg
+    rep(0.0, 41.0, 0.0)
+    assert "0:00 / 0:41" in store.get("prog_short").errorMessage
+
+
+def test_channel_link_forwards_ocr_flag(monkeypatch, tmp_path):
+    """视频号页的「同时识别画面文字」必须真正生效（此前写死 True，没勾也会跑 OCR）。"""
+    import app.file_transcribe as ft
+    from app import video_channel
+
+    monkeypatch.setenv("TRANSCRIPT_VC_META", str(tmp_path / "vc.json"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(video_channel, "yuanbao_cookie", lambda: "ck")
+    monkeypatch.setattr(video_channel, "fetch_feed_info", lambda uri: dict(_META, short_uri=uri))
+    monkeypatch.setattr(video_channel, "resolve_video",
+                        lambda raw, **kw: {"videoUrl": "https://x/v.mp4", "title": "T"})
+    monkeypatch.setattr(video_channel, "download_media",
+                        lambda url, dest, timeout=180.0: Path(dest).write_bytes(b"mp4"))
+    seen = {}
+    monkeypatch.setattr(ft, "start_file_task",
+                        lambda task, tmp, model, src, **kw: seen.update(kw))
+
+    video_channel.process_channel_link(VC_LINK, "tiny", ocr_frames=False)
+    assert seen.get("ocr_frames") is False
+    seen.clear()
+    video_channel.process_channel_link(VC_LINK, "tiny", ocr_frames=True)
+    assert seen.get("ocr_frames") is True

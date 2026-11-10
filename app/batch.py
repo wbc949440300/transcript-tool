@@ -53,7 +53,7 @@ def start_batch(batch_id: str, urls: list[str], whisper_model: str = "base") -> 
 
             if is_channel_share(url):
                 try:
-                    ok = process_channel_link(url, whisper_model, task=task)
+                    ok = process_channel_link(url, whisper_model, task=task, ocr_frames=False)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("批量视频号处理失败: %s", exc)
                     ok = None

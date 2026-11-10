@@ -10,7 +10,7 @@
 
 注册成 Windows 计划任务（用户级，不需要管理员）：
     schtasks /create /tn "文案提取-看门狗" /sc minute /mo 5 ^
-      /tr "\"F:\python\python.exe\" \"F:\文案提取工具\transcript_tool\scripts\watchdog.py\" --once"
+      /tr "\"<你的 python.exe>\" \"<项目目录>\scripts\watchdog.py\" --once"
 """
 from __future__ import annotations
 

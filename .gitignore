@@ -26,3 +26,7 @@ dist/
 _backup_remove_*/
 cookies/*.bak-*
 cookies/.*_polluted.json
+
+# 本机自用的启动/探针脚本（开源仓库不含）
+_probe_vc_batch.py
+启动-系统Python.bat

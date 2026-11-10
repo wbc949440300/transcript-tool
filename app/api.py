@@ -67,14 +67,34 @@ async def create_task(req: CreateTaskRequest):
         from . import video_channel
 
         if video_channel.is_channel_share(raw):
-            # whisperModel 传 auto：下载后按时长自适应（短片 medium / 长视频 tiny），
-            # 前端下拉可选固定模型（2026-11-05）
-            task_id = await asyncio.to_thread(
-                video_channel.process_channel_link, raw, req.whisperModel or "auto")
-            if task_id:
-                return TaskCreated(data=TaskCreatedData(taskId=task_id))
-            return JSONResponse(status_code=400, content={
-                "code": 500, "msg": video_channel.CHANNEL_UNRESOLVABLE, "data": None})
+            # 2026-11-05 改异步：元宝换直链 + 下载视频通常要 5~18 秒，以前都压在 POST 里，
+            # 页面只能干等。现在先建占位任务、立即返回 taskId，获取/下载在后台线程跑，
+            # 前端和其他平台一样马上进入进度页（get 阶段通过 errorMessage 实时更新）。
+            task = TaskDetail(
+                taskId=gen_task_id(), taskType="videochannel", status=TaskStatus.PENDING,
+                errorMessage="正在获取视频号视频...", platform="视频号",
+                webpageUrl=raw, title="视频号作品")
+            store.create(task)
+
+            def _run_channel() -> None:
+                try:
+                    tid = video_channel.process_channel_link(
+                        raw, req.whisperModel or "auto", task=task,
+                        ocr_frames=bool(req.ocrFrames))
+                    if not tid:
+                        store.update_status(task.taskId, TaskStatus.FAILURE,
+                                            errorMessage=video_channel.CHANNEL_UNRESOLVABLE)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("视频号异步处理失败: %s", exc)
+                    try:
+                        store.update_status(task.taskId, TaskStatus.FAILURE,
+                                            errorMessage=f"视频号处理失败：{exc}"[:300])
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            threading.Thread(target=_run_channel, daemon=True,
+                             name=f"vc-{task.taskId}").start()
+            return TaskCreated(data=TaskCreatedData(taskId=task.taskId))
         return JSONResponse(status_code=400, content={"code": 500, "msg": str(exc), "data": None})
 
     task_id = gen_task_id()
@@ -90,7 +110,7 @@ async def create_task(req: CreateTaskRequest):
         taskId=task_id,
         taskType="transcript",
         status=TaskStatus.PENDING,
-        errorMessage="作品内容提取中...",
+        errorMessage="正在提取作品内容...",
         platform=detect_platform(url),
         webpageUrl=url,
     )
@@ -259,7 +279,7 @@ async def file_transcript_do_task(file: UploadFile = File(...), whisperModel: st
     tmp.write_bytes(data)
     task = TaskDetail(
         taskId=task_id, taskType="file_transcript", status=TaskStatus.PENDING,
-        errorMessage="准备转写...", title=file.filename, platform="本地文件",
+        errorMessage="正在准备转写...", title=file.filename, platform="本地文件",
     )
     store.create(task)
     start_file_task(task, tmp, whisperModel, file.filename,

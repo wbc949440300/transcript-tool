@@ -63,3 +63,16 @@ def test_budget_and_cooldown_declared():
     for a in all_adapters():
         assert a.cooldown_base >= 60
         assert a.daily_budget >= 0
+
+
+def test_douyin_homepage_is_rejected(monkeypatch):
+    """失效短链会 302 到首页：必须直接报错，不能建一条注定失败的任务。"""
+    with pytest.raises(LinkError) as ei:
+        normalize("https://www.douyin.com/")
+    assert "没有指向具体视频" in str(ei.value)
+
+
+def test_douyin_valid_work_links_pass():
+    assert normalize("https://www.douyin.com/video/123")[1] == "抖音"
+    assert normalize("https://www.iesdouyin.com/share/video/123")[1] == "抖音"
+    assert normalize("https://www.douyin.com/note/123")[1] == "抖音"

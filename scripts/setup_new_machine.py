@@ -9,8 +9,7 @@
   2. Playwright 浏览器内核（抖音/小红书渲染通道需要；可选，失败不阻塞）
   3. ffmpeg：系统 PATH 没有 → 自动下载到项目内 tools/ffmpeg（run.py 会优先用它）
   4. .env：不存在则从 .env.example 复制（LLM key 需要自己填）
-  5. 其余全部自动：wx_channels_download（服务启动时自动下载+启动）、
-     监听目录自动接线、whisper 模型首次使用自动下载（默认走 hf-mirror）、
+  5. 其余全部自动：whisper 模型首次使用自动下载（默认走 hf-mirror）、
      历史库/任务目录自动创建 —— 无需任何手工配置。
 
 手动步骤只剩两件：装 Python 3.10+；在 .env 里填 LLM API key（可选）。
@@ -226,13 +225,8 @@ def main() -> int:
         print("[!] 找不到 .env.example（跳过）")
 
     print("\n=== 完成 ===")
-    print("接下来: python run.py  启动服务（监听目录 / 模型自动就位）")
-    if IS_WINDOWS:
-        print("视频号首次使用：若提示证书未安装，在页面点一次「一键安装并启动」（弹 UAC 点是）")
-    else:
-        print("视频号：Linux 上不提供下载器（那个部件是 Windows 专属）。")
-        print("       替代路径 —— 在 Windows 机器上把视频号视频抓好，"
-              "拷进包的 wx_downloads/ 目录，本服务会自动入库转写。")
+    print("接下来: python run.py  启动服务（模型自动就位）")
+    print("视频号首次使用：到「账号」页最上面一行点「登录」，微信扫码绑定元宝（约 60 天有效）。")
     return 0
 
 

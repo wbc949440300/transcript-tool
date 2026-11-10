@@ -117,13 +117,35 @@ def test_frame_cmd_downscales_when_asked():
     assert "scale=720:-2" in vf and "fps=1/5.00" in vf
 
 
+def test_frame_cmd_crop_applied_after_scale():
+    """字幕带裁剪：scale 之后追加 crop=iw:ih*比例:0:ih*top。"""
+    from app.frame_ocr import _frame_cmd
+
+    cmd = _frame_cmd("a.mp4", "", 5.0, 48, "f_%03d.jpg", scale_w=720, crop="0.55:0.45")
+    vf = cmd[cmd.index("-vf") + 1]
+    assert "scale=720:-2" in vf
+    assert "crop=iw:ih*0.45:0:ih*0.55" in vf
+
+
+def test_frame_cmd_crop_ignored_without_scale_or_bad():
+    """没有 scale 时 crop 不追加；非法 crop 直接忽略（保持全画面）。"""
+    from app.frame_ocr import _frame_cmd, _crop_vf
+
+    assert _crop_vf("") == ""
+    assert _crop_vf("bad") == ""
+    assert _crop_vf("1.5:2") == ""          # 越界
+    assert _crop_vf("0.5:0.4") == ",crop=iw:ih*0.40:0:ih*0.50"
+    cmd = _frame_cmd("a.mp4", "", 5.0, 48, "f_%03d.jpg", scale_w=0, crop="0.55:0.45")
+    assert "crop=" not in cmd
+
+
 def test_probe_then_full_scan(monkeypatch):
     """两段式：先探针（8 帧、覆盖整条视频），命中才全扫（48 帧）。"""
     import app.frame_ocr as fo
 
     calls = []
 
-    def fake_scan(source, referer, interval, frames_n, W, H, tmp, tag):
+    def fake_scan(source, referer, interval, frames_n, W, H, tmp, tag, patience=0, crop=''):
         calls.append((tag, round(interval, 2), frames_n))
         if tag == "p":
             return [], 0, frames_n, [("字幕文字", 0.5, 0.8, 0.12)]
@@ -146,7 +168,7 @@ def test_probe_skips_full_scan_when_no_text(monkeypatch):
 
     calls = []
 
-    def fake_scan(source, referer, interval, frames_n, W, H, tmp, tag):
+    def fake_scan(source, referer, interval, frames_n, W, H, tmp, tag, patience=0, crop=''):
         calls.append(tag)
         return [], 0, frames_n, []
 

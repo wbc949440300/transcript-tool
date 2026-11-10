@@ -5,7 +5,25 @@
 """
 import logging
 
+
+def _force_utf8_console() -> None:
+    """PyCharm/Windows 控制台默认按系统 GBK 编码，中文报错会变乱码。
+
+    2026-11-05：把 stdout/stderr 强制成 UTF-8，PyCharm 的 Run 窗口才能正常显示
+    `[WinError 10054] 远程主机强迫关闭了一个现有的连接` 这类中文错误。
+    """
+    import sys
+
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 if __name__ == "__main__":
+    _force_utf8_console()
     import os
 
     import uvicorn

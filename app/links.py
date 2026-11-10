@@ -176,7 +176,14 @@ def normalize(raw: str) -> tuple[str, str]:
         )
 
     if "douyin.com" in host or "iesdouyin.com" in host:
-        return _norm_douyin(url), "抖音"
+        fixed = _norm_douyin(url)
+        # 2026-11-05：失效的 v.douyin.com 会 302 到 https://www.douyin.com/（首页）。
+        # 以前这种地址也会被当成有效任务提交，前端只能干等到超时；这里直接给明确提示。
+        if not re.search(r"(?:douyin|iesdouyin)\.com/(?:share/)?(?:video|note)/\d+", fixed):
+            raise LinkError(
+                "这个抖音链接没有指向具体视频（短链可能已失效，或复制的是主页/搜索页）。"
+                "请在抖音 App 里打开要提取的视频，重新「分享 → 复制链接」后再试。")
+        return fixed, "抖音"
     if "xiaohongshu.com" in host:
         return _norm_xhs(url), "小红书"
     if "kuaishou.com" in host:

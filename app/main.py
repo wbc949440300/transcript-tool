@@ -175,8 +175,28 @@ async def _api_auth_and_session(request: Request, call_next):
 
 
 @app.on_event("startup")
-async def _startup_watch():
+async def _startup_tasks():
     import asyncio
+
+    # 2026-11-05：Windows Proactor 在浏览器/播放器提前断开时，会把
+    # ConnectionResetError 当成事件循环异常打一条 ERROR + traceback。
+    # 这不是服务故障（视频拖动、关页面、轮询中断都会触发），静默掉避免刷屏。
+    try:
+        loop = asyncio.get_running_loop()
+        prev = loop.get_exception_handler()
+
+        def _quiet_disconnects(loop_, ctx):
+            exc = ctx.get("exception")
+            if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+                return
+            if prev:
+                prev(loop_, ctx)
+            else:
+                loop_.default_exception_handler(ctx)
+
+        loop.set_exception_handler(_quiet_disconnects)
+    except Exception:  # noqa: BLE001
+        pass
 
     # 历史记录里的文案补齐归档到 文案输出/ 文件夹（幂等，缺哪个补哪个）
     from .archive import backfill
